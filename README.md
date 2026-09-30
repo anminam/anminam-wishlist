@@ -23,10 +23,10 @@ npx wrangler login
 서울에서 사용하는 개인 사이트이므로 위치 힌트는 `apac`으로 시작합니다.
 
 ```bash
-npx wrangler d1 create anminam-wishlist --location=apac
+npx wrangler d1 create anminam-wish-db --location=apac
 ```
 
-출력된 `database_id`를 `wrangler.jsonc`의 all-zero UUID 자리에 넣습니다.
+현재 Cloudflare 계정에는 `anminam-wish-db`가 생성되어 있으며, `wrangler.jsonc`에는 해당 D1의 실제 ID가 설정되어 있습니다. 다른 계정에서 새로 설정할 때는 출력된 `database_id`를 설정 파일에 넣고 `database_name`과 마이그레이션 스크립트의 이름도 맞춥니다.
 
 그 다음 스키마를 적용합니다.
 
@@ -40,7 +40,7 @@ npm run db:migrate:remote
 npx wrangler r2 bucket create anminam-wishlist-images --location=apac
 ```
 
-`wrangler.jsonc`의 `WISH_IMAGES` 바인딩이 이 버킷을 사용합니다.
+`wrangler.jsonc`의 `WISH_IMAGES` 바인딩이 이 버킷을 사용합니다. 현재 대상 계정에는 APAC 위치 힌트와 Standard 스토리지 클래스로 생성되어 있으며 공개 접근은 꺼져 있습니다.
 
 ## 4. 쓰기용 관리자 토큰 설정
 
@@ -100,3 +100,44 @@ npm run deploy
 ## 이미지 처리
 
 위시 저장 시 원본 이미지 URL을 가져와 R2에 복사합니다. 따라서 교보문고/무신사 등 원본 사이트의 핫링크 정책에 덜 영향을 받습니다.
+
+관리자 모드에서는 자동 조회 대신 JPG, PNG, WebP, GIF, AVIF 이미지를 직접 올릴 수도 있습니다. 업로드 크기는 8MB로 제한됩니다.
+
+## 제공 기능
+
+- 상품명·메모·태그 검색, 카테고리 필터, 가격·등록일·우선순위 정렬
+- 갖고 싶음, 구매 완료, 보관 상태 관리
+- 우선순위, 목표 가격, 태그, 공개 범위 설정
+- 공개·링크 공개·비공개 컬렉션과 개별 위시 공유
+- 방문자의 선물 준비 표시와 30일 후 자동 만료
+- JSON 전체 백업·복원과 CSV 내보내기
+- 가격 이력, 목표 가격 도달 및 가격 하락 사이트 내 알림
+- 카드·컴팩트·리스트 보기와 모바일 레이아웃
+
+## 가격 확인 자동화
+
+`wrangler.jsonc`에는 매일 `18:20 UTC`(한국 시간 오전 3시 20분)에 실행되는 Cron Trigger가 설정되어 있습니다. 가격 추적을 켠 위시 중 오래 확인하지 않은 항목을 한 번에 최대 12개 확인합니다.
+
+로컬에서는 개발 서버를 실행한 뒤 다음 URL로 Scheduled Handler를 확인할 수 있습니다.
+
+```bash
+curl "http://localhost:5173/cdn-cgi/local/scheduled?format=json"
+```
+
+쇼핑몰이 자동 접근을 차단하거나 상품 페이지 구조를 변경하면 가격을 읽지 못할 수 있습니다. 가격 확인 실패는 기존 가격을 덮어쓰지 않습니다.
+
+## 기능 마이그레이션
+
+검색·상태·컬렉션·태그·예약·가격 이력에 필요한 스키마는 `migrations/0002_wishlist_features.sql`에 있습니다.
+
+로컬 적용:
+
+```bash
+npm run db:migrate:local
+```
+
+원격 적용은 배포 전 백업을 확인한 뒤 명시적으로 실행합니다.
+
+```bash
+npm run db:migrate:remote
+```

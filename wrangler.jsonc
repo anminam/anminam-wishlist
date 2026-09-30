@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  "account_id": "3d7e57da8c95e4c3c5209d2334105517",
   "name": "anminam-wishlist",
   "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
   "assets": {
     "not_found_handling": "single-page-application",
@@ -10,8 +12,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "anminam-wishlist",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_name": "anminam-wish-db",
+      "database_id": "51b3690e-afee-46e8-968b-ddb20499bc48",
       "migrations_dir": "migrations"
     }
   ],
@@ -20,5 +22,13 @@
       "binding": "WISH_IMAGES",
       "bucket_name": "anminam-wishlist-images"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["20 18 * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  }
 }
