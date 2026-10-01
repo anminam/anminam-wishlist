@@ -383,7 +383,56 @@ function extractProductMetadata(html: string, pageUrl: string) {
   };
 }
 
+async function kyoboMetadataFromUrl(rawUrl: string) {
+  const pageUrl = new URL(rawUrl);
+  const productMatch = pageUrl.pathname.match(/^\/detail\/(?:ink\/|mok\/)?(S\d{12})\/?$/i);
+  if (!productMatch) throw new Error("kyobo_product_url_unsupported");
+
+  const productId = productMatch[1].toUpperCase();
+  const apiUrl = `https://product.kyobobook.co.kr/api/gw/pdt/v2/product/${productId}`;
+  const response = await safeFetch(apiUrl, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (compatible; AnminamWishlist/1.0)",
+      accept: "application/json, text/plain, */*",
+      "accept-language": "ko-KR,ko;q=0.9,en;q=0.6",
+      referer: `https://product.kyobobook.co.kr/detail/${productId}`,
+    },
+  });
+  if (!response.ok) throw new Error(`kyobo_api_${response.status}`);
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (declaredLength > MAX_HTML_BYTES) throw new Error("payload_too_large");
+
+  const text = await readTextLimited(response.body, MAX_HTML_BYTES);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("kyobo_api_invalid_json");
+  }
+  if (!payload || typeof payload !== "object") throw new Error("kyobo_api_invalid_payload");
+  const data = (payload as Record<string, unknown>).data;
+  if (!data || typeof data !== "object") throw new Error("kyobo_product_not_found");
+  const top = data as Record<string, unknown>;
+  const titleBlock = top.top && typeof top.top === "object" ? (top.top as Record<string, unknown>).title : null;
+  const mainTitle = titleBlock && typeof titleBlock === "object" ? (titleBlock as Record<string, unknown>).main : null;
+  const titleValue = mainTitle && typeof mainTitle === "object" ? (mainTitle as Record<string, unknown>).value : null;
+  const title = typeof titleValue === "string" ? decodeHtml(titleValue).slice(0, 300) : "";
+  const info = top.top && typeof top.top === "object" ? (top.top as Record<string, unknown>).order : null;
+  const order = info && typeof info === "object" ? (info as Record<string, unknown>).price : null;
+  const priceData = order && typeof order === "object" ? order as Record<string, unknown> : null;
+  const priceValue = priceData?.discountPrice ?? priceData?.price;
+  const price = typeof priceValue === "number" && Number.isFinite(priceValue) ? priceValue : null;
+  if (!title) throw new Error("kyobo_product_title_missing");
+
+  return { title, image: "", price, currency: "KRW", source: sourceLabel(rawUrl) };
+}
+
 async function metadataFromUrl(rawUrl: string) {
+  const url = new URL(rawUrl);
+  if (url.hostname.toLowerCase() === "product.kyobobook.co.kr") {
+    return kyoboMetadataFromUrl(rawUrl);
+  }
+
   const response = await safeFetch(rawUrl, {
     headers: {
       "user-agent": "Mozilla/5.0 (compatible; AnminamWishlist/1.0)",
