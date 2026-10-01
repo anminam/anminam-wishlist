@@ -50,6 +50,10 @@ button.icon-button { border: 0; padding: 0; font-size: 30px; line-height: 1; wid
 .hero-ledger .total { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; text-align: left; }
 .hero-ledger strong { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 35px; font-weight: 500; }
 .hero-ledger span { color: var(--muted); font-size: 12px; }
+.budget-summary { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 4px 8px; }
+.budget-summary > div { display: grid; gap: 4px; }
+.budget-summary strong { font-size: 23px; }
+.budget-summary button { flex: 0 0 auto; border-color: var(--line); font-size: 11px; }
 
 .notice { position: sticky; z-index: 30; top: 10px; width: min(620px, calc(100vw - 32px)); margin: 16px auto -58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 14px 12px 18px; background: var(--ink); color: white; border-radius: 5px; box-shadow: 0 10px 35px rgba(23, 24, 21, .22); }
 .notice button { border: 0; color: white; padding: 0; font-size: 20px; }
@@ -79,6 +83,18 @@ select { min-width: 145px; }
 .collection-title { display: flex; align-items: end; justify-content: space-between; margin-bottom: 22px; }
 .collection-title h2 { margin: 0; font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: clamp(32px, 4vw, 58px); font-weight: 500; letter-spacing: -.04em; }
 .collection-title p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.compare-panel { margin: -20px 0 36px; border-top: 3px solid var(--teal); border-bottom: 1px solid var(--line); background: rgba(250, 248, 242, .55); }
+.compare-heading { display: flex; align-items: center; justify-content: space-between; padding: 13px 12px; }
+.compare-heading > div { display: flex; align-items: baseline; gap: 10px; }
+.compare-heading span, .compare-panel small { color: var(--muted); font-size: 11px; }
+.compare-scroll { overflow-x: auto; }
+.compare-panel table { width: 100%; min-width: 600px; border-collapse: collapse; text-align: left; }
+.compare-panel th, .compare-panel td { min-width: 135px; padding: 11px 12px; border-top: 1px solid var(--line); vertical-align: top; font-size: 12px; line-height: 1.55; }
+.compare-panel thead th:first-child, .compare-panel tbody th { position: sticky; left: 0; min-width: 100px; width: 100px; background: var(--paper-light); color: var(--muted); font-weight: 600; }
+.compare-panel thead th > span { display: block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.compare-panel th button { margin-top: 5px; padding: 0; border: 0; color: var(--muted); font-size: 10px; text-decoration: underline; }
+.compare-panel td small { display: block; }
+.compare-panel a { color: var(--teal); }
 
 .wish-list.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px 18px; }
 .wish-list.compact { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 22px 12px; }
@@ -104,6 +120,10 @@ select { min-width: 145px; }
 .sparkline polyline { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .sparkline.fell { color: var(--teal); }
 .sparkline.fell polyline { stroke: var(--teal); }
+.price-status { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 0; color: var(--muted); font-size: 10px; }
+.price-status.success { color: var(--teal); }
+.price-status.error { color: var(--danger); }
+.price-status time { color: var(--muted); }
 .reservation-note { margin-top: 13px; padding: 9px; background: rgba(216, 240, 106, .38); font-size: 11px; line-height: 1.5; }
 .card-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-top: 17px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 .card-footer > span { max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -171,6 +191,9 @@ label small { color: var(--muted); font-weight: 400; }
 .notification-list article > span { color: var(--teal); font-size: 11px; font-weight: 700; }
 .notification-list p { margin: 0; font-size: 13px; line-height: 1.5; }
 .notification-list time { color: var(--muted); font-size: 10px; }
+.budget-report { display: grid; gap: 6px; padding: 15px; border-top: 2px solid var(--teal); border-bottom: 1px solid var(--line); }
+.budget-report span, .budget-report small { color: var(--muted); font-size: 12px; }
+.budget-report strong { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 28px; font-weight: 500; }
 
 .shared-mode .hero { grid-template-columns: 1fr; }
 .shared-mode .hero-copy { max-width: 980px; }

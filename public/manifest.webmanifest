@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "안미남 위시리스트",
+  "short_name": "위시 아카이브",
+  "description": "마음에 남은 것과 구매 기록을 모으는 개인 위시 아카이브",
+  "lang": "ko-KR",
+  "start_url": "/admin",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f1eee6",
+  "theme_color": "#f1eee6",
+  "icons": [
+    { "src": "/wish-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/wish-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/wish-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "/admin?share-target=1",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  }
+}

@@ -9,6 +9,7 @@ type WishInput = {
   image_url?: unknown;
   image_key?: unknown;
   price?: unknown;
+  purchase_price?: unknown;
   target_price?: unknown;
   currency?: unknown;
   category?: unknown;
@@ -45,6 +46,8 @@ type WishRow = {
   collection_slug: string | null;
   track_price: number;
   last_price_checked_at: string | null;
+  last_price_check_status: "unknown" | "pending" | "success" | "unavailable" | "error";
+  purchase_price: number | null;
   created_at: string;
   updated_at: string;
   tags?: string[];
@@ -457,7 +460,7 @@ const WISH_COLUMNS = `
   w.id, w.title, w.url, w.image_url, w.image_key, w.price, w.currency,
   w.category, w.reason, w.source, w.purchased, w.status, w.priority,
   w.target_price, w.purchased_at, w.visibility, w.share_slug, w.collection_id,
-  w.track_price, w.last_price_checked_at, w.created_at, w.updated_at,
+  w.track_price, w.last_price_checked_at, w.last_price_check_status, w.purchase_price, w.created_at, w.updated_at,
   c.name AS collection_name, c.slug AS collection_slug
 `;
 
@@ -528,7 +531,8 @@ async function queryWishes(request: Request, env: AppEnv, options: { admin?: boo
   };
   const order = sortMap[url.searchParams.get("sort") || ""] || "datetime(w.created_at) DESC";
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const result = await env.DB.prepare(`SELECT ${WISH_COLUMNS} FROM wishes w LEFT JOIN collections c ON c.id = w.collection_id ${where} ORDER BY ${order} LIMIT 500`).bind(...bindings).all<WishRow>();
+  const columns = admin ? WISH_COLUMNS : WISH_COLUMNS.replace("w.purchase_price", "NULL AS purchase_price");
+  const result = await env.DB.prepare(`SELECT ${columns} FROM wishes w LEFT JOIN collections c ON c.id = w.collection_id ${where} ORDER BY ${order} LIMIT 500`).bind(...bindings).all<WishRow>();
   return decorateWishes(env, result.results, admin);
 }
 
@@ -559,6 +563,7 @@ function wishValues(input: WishInput) {
     imageUrl: normalizeNullableText(input.image_url, 2048),
     imageKey: normalizeNullableText(input.image_key, 512),
     price: normalizeInteger(input.price),
+    purchasePrice: normalizeInteger(input.purchase_price),
     targetPrice: normalizeInteger(input.target_price),
     currency: normalizeText(input.currency, 8).toUpperCase() || "KRW",
     category: normalizeNullableText(input.category, 100),
@@ -584,13 +589,14 @@ async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext) 
   await env.DB.prepare(`
     INSERT INTO wishes (
       id, title, url, image_url, image_key, price, currency, category, reason, source,
-      purchased, status, priority, target_price, purchased_at, visibility, share_slug,
+      purchased, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
       collection_id, track_price
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id, values.title, values.url, values.imageUrl, values.imageKey, values.price, values.currency,
     values.category, values.reason, values.source || sourceLabel(values.url), values.status === "purchased" ? 1 : 0,
     values.status, values.priority, values.targetPrice, values.status === "purchased" ? new Date().toISOString() : null,
+    values.status === "purchased" ? values.purchasePrice ?? values.price : null,
     values.visibility, shareSlug, values.collectionId, values.trackPrice,
   ).run();
   await replaceWishTags(env, id, values.tags);
@@ -608,8 +614,8 @@ async function updateWish(request: Request, env: AppEnv, id: string) {
   if (!await isAuthorized(request, env)) return unauthorized();
   const values = wishValues(await readJson(request) as WishInput);
   if (!values.title || !isSafePublicHttpUrl(values.url)) return json({ error: "상품명과 올바른 URL이 필요합니다." }, { status: 400 });
-  const existing = await env.DB.prepare("SELECT image_url, image_key, purchased_at FROM wishes WHERE id = ?")
-    .bind(id).first<{ image_url: string | null; image_key: string | null; purchased_at: string | null }>();
+  const existing = await env.DB.prepare("SELECT image_url, image_key, purchased_at, purchase_price FROM wishes WHERE id = ?")
+    .bind(id).first<{ image_url: string | null; image_key: string | null; purchased_at: string | null; purchase_price: number | null }>();
   if (!existing) return json({ error: "위시를 찾을 수 없습니다." }, { status: 404 });
   const duplicate = await env.DB.prepare("SELECT id FROM wishes WHERE url = ? AND id != ? LIMIT 1").bind(values.url, id).first();
   if (duplicate) return json({ error: "같은 링크로 저장된 다른 위시가 있습니다." }, { status: 409 });
@@ -621,12 +627,14 @@ async function updateWish(request: Request, env: AppEnv, id: string) {
     UPDATE wishes SET
       title = ?, url = ?, image_url = ?, image_key = ?, price = ?, currency = ?, category = ?,
       reason = ?, source = ?, purchased = ?, status = ?, priority = ?, target_price = ?,
-      purchased_at = ?, visibility = ?, collection_id = ?, track_price = ?, updated_at = datetime('now')
+      purchased_at = ?, purchase_price = ?, visibility = ?, collection_id = ?, track_price = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(
     values.title, values.url, values.imageUrl, imageKey, values.price, values.currency, values.category,
     values.reason, values.source || sourceLabel(values.url), values.status === "purchased" ? 1 : 0,
-    values.status, values.priority, values.targetPrice, purchasedAt, values.visibility,
+    values.status, values.priority, values.targetPrice, purchasedAt,
+    values.status === "purchased" ? values.purchasePrice ?? existing.purchase_price ?? values.price : existing.purchase_price,
+    values.visibility,
     values.collectionId, values.trackPrice, id,
   ).run();
   await replaceWishTags(env, id, values.tags);
@@ -638,12 +646,47 @@ async function updateWish(request: Request, env: AppEnv, id: string) {
 
 async function updateWishStatus(request: Request, env: AppEnv, id: string) {
   if (!await isAuthorized(request, env)) return unauthorized();
-  const status = normalizeStatus((await readJson(request)).status);
+  const body = await readJson(request);
+  const status = normalizeStatus(body.status);
+  const existing = await env.DB.prepare("SELECT price, purchase_price FROM wishes WHERE id = ?")
+    .bind(id).first<{ price: number | null; purchase_price: number | null }>();
+  if (!existing) return json({ error: "위시를 찾을 수 없습니다." }, { status: 404 });
+  const purchasePrice = Object.hasOwn(body, "purchase_price")
+    ? normalizeInteger(body.purchase_price)
+    : existing.purchase_price ?? existing.price;
   await env.DB.prepare(`
-    UPDATE wishes SET status = ?, purchased = ?, purchased_at = CASE WHEN ? = 'purchased' THEN COALESCE(purchased_at, datetime('now')) ELSE NULL END, updated_at = datetime('now')
+    UPDATE wishes SET status = ?, purchased = ?,
+      purchased_at = CASE WHEN ? = 'purchased' THEN COALESCE(purchased_at, datetime('now')) ELSE NULL END,
+      purchase_price = CASE WHEN ? = 'purchased' THEN ? ELSE purchase_price END,
+      updated_at = datetime('now')
     WHERE id = ?
-  `).bind(status, status === "purchased" ? 1 : 0, status, id).run();
+  `).bind(status, status === "purchased" ? 1 : 0, status, status, purchasePrice, id).run();
   return json({ ok: true, status });
+}
+
+function isMonth(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+async function listMonthlyBudgets(request: Request, env: AppEnv) {
+  if (!await isAuthorized(request, env)) return unauthorized();
+  const result = await env.DB.prepare("SELECT month, amount, updated_at FROM monthly_budgets ORDER BY month DESC LIMIT 36").all();
+  return json({ budgets: result.results });
+}
+
+async function saveMonthlyBudget(request: Request, env: AppEnv) {
+  if (!await isAuthorized(request, env)) return unauthorized();
+  const body = await readJson(request);
+  const month = body.month;
+  const amount = normalizeInteger(body.amount);
+  if (!isMonth(month) || amount == null || amount > 1_000_000_000) {
+    return json({ error: "월과 예산 금액을 올바르게 입력해주세요." }, { status: 400 });
+  }
+  await env.DB.prepare(`
+    INSERT INTO monthly_budgets (month, amount, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(month) DO UPDATE SET amount = excluded.amount, updated_at = datetime('now')
+  `).bind(month, amount).run();
+  return json({ ok: true, month, amount });
 }
 
 async function deleteWish(request: Request, env: AppEnv, id: string) {
@@ -781,14 +824,14 @@ async function checkWishPrice(env: AppEnv, wish: PriceTrackRow) {
   try {
     const metadata = await metadataFromUrl(wish.url);
     if (metadata.price == null) {
-      await env.DB.prepare("UPDATE wishes SET last_price_checked_at = datetime('now') WHERE id = ?").bind(wish.id).run();
+      await env.DB.prepare("UPDATE wishes SET last_price_checked_at = datetime('now'), last_price_check_status = 'unavailable' WHERE id = ?").bind(wish.id).run();
       return { id: wish.id, changed: false, price: null };
     }
     const price = Math.round(metadata.price);
     const statements: D1PreparedStatement[] = [
       env.DB.prepare("INSERT INTO price_history (id, wish_id, price, currency) VALUES (?, ?, ?, ?)")
         .bind(crypto.randomUUID(), wish.id, price, metadata.currency || wish.currency),
-      env.DB.prepare("UPDATE wishes SET price = ?, currency = ?, last_price_checked_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      env.DB.prepare("UPDATE wishes SET price = ?, currency = ?, last_price_checked_at = datetime('now'), last_price_check_status = 'success', updated_at = datetime('now') WHERE id = ?")
         .bind(price, metadata.currency || wish.currency, wish.id),
     ];
     if (wish.price != null && price < wish.price) {
@@ -802,7 +845,7 @@ async function checkWishPrice(env: AppEnv, wish: PriceTrackRow) {
     await env.DB.batch(statements);
     return { id: wish.id, changed: wish.price !== price, price };
   } catch (error) {
-    await env.DB.prepare("UPDATE wishes SET last_price_checked_at = datetime('now') WHERE id = ?").bind(wish.id).run();
+    await env.DB.prepare("UPDATE wishes SET last_price_checked_at = datetime('now'), last_price_check_status = 'error' WHERE id = ?").bind(wish.id).run();
     console.warn(JSON.stringify({ message: "price_check_failed", wishId: wish.id, error: error instanceof Error ? error.message : "unknown" }));
     return { id: wish.id, changed: false, price: null };
   }
@@ -829,12 +872,12 @@ async function runScheduledPriceChecks(env: AppEnv) {
 
 async function exportData(request: Request, env: AppEnv) {
   if (!await isAuthorized(request, env)) return unauthorized();
-  const tables = ["collections", "wishes", "tags", "wish_tags", "reservations", "price_history", "notifications"] as const;
+  const tables = ["collections", "wishes", "tags", "wish_tags", "reservations", "price_history", "notifications", "monthly_budgets"] as const;
   const entries = await Promise.all(tables.map(async (table) => [table, (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results] as const));
   const backup = { version: 1, exported_at: new Date().toISOString(), ...Object.fromEntries(entries) };
   if (new URL(request.url).searchParams.get("format") === "csv") {
     const wishes = await queryWishes(request, env, { admin: true });
-    const headers = ["title", "url", "price", "target_price", "currency", "category", "source", "status", "priority", "tags", "reason"];
+    const headers = ["title", "url", "price", "purchase_price", "purchased_at", "target_price", "currency", "category", "source", "status", "priority", "tags", "reason"];
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers.join(","), ...wishes.map((wish) => headers.map((key) => escape(key === "tags" ? wish.tags?.join("|") : wish[key as keyof WishRow])).join(","))].join("\n");
     return new Response(`\uFEFF${csv}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=anminam-wishes.csv" } });
@@ -867,17 +910,25 @@ async function importData(request: Request, env: AppEnv) {
     statements.push(env.DB.prepare(`
       INSERT OR REPLACE INTO wishes (
         id, title, url, image_url, image_key, price, currency, category, reason, source, purchased,
-        created_at, updated_at, status, priority, target_price, purchased_at, visibility, share_slug,
-        collection_id, track_price, last_price_checked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
+        collection_id, track_price, last_price_checked_at, last_price_check_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       id, title, url, normalizeNullableText(row.image_url, 2048), normalizeNullableText(row.image_key, 512), normalizeInteger(row.price),
       normalizeText(row.currency, 8) || "KRW", normalizeNullableText(row.category, 100), normalizeNullableText(row.reason, 2000),
       normalizeNullableText(row.source, 100), normalizeStatus(row.status) === "purchased" ? 1 : 0, normalizeText(row.created_at, 40) || new Date().toISOString(),
       normalizeText(row.updated_at, 40) || new Date().toISOString(), normalizeStatus(row.status), normalizePriority(row.priority), normalizeInteger(row.target_price),
-      normalizeNullableText(row.purchased_at, 40), normalizeVisibility(row.visibility), normalizeText(row.share_slug, 100) || crypto.randomUUID().slice(0, 16),
+      normalizeNullableText(row.purchased_at, 40), normalizeInteger(row.purchase_price) ?? (normalizeStatus(row.status) === "purchased" ? normalizeInteger(row.price) : null),
+      normalizeVisibility(row.visibility), normalizeText(row.share_slug, 100) || crypto.randomUUID().slice(0, 16),
       normalizeNullableText(row.collection_id, 100), row.track_price === 1 ? 1 : 0, normalizeNullableText(row.last_price_checked_at, 40),
+      ["unknown", "pending", "success", "unavailable", "error"].includes(normalizeText(row.last_price_check_status, 20)) ? normalizeText(row.last_price_check_status, 20) : "unknown",
     ));
+  }
+  for (const row of asRows(backup.monthly_budgets, 120)) {
+    const month = row.month;
+    const amount = normalizeInteger(row.amount);
+    if (isMonth(month) && amount != null) statements.push(env.DB.prepare("INSERT OR REPLACE INTO monthly_budgets (month, amount, updated_at) VALUES (?, ?, ?)")
+      .bind(month, amount, normalizeText(row.updated_at, 40) || new Date().toISOString()));
   }
   for (const row of asRows(backup.tags)) {
     const id = normalizeText(row.id, 100);
@@ -943,6 +994,8 @@ async function handleRequest(request: Request, env: AppEnv, ctx: ExecutionContex
   if (request.method === "GET" && path === "/api/collections") return listCollections(request, env);
   if (request.method === "POST" && path === "/api/collections") return createCollection(request, env);
   if (request.method === "GET" && path === "/api/notifications") return listNotifications(request, env);
+  if (request.method === "GET" && path === "/api/admin/budgets") return listMonthlyBudgets(request, env);
+  if (request.method === "PUT" && path === "/api/admin/budgets") return saveMonthlyBudget(request, env);
   if (request.method === "POST" && path === "/api/notifications/read-all") return readNotifications(request, env);
   if (request.method === "GET" && path === "/api/export") return exportData(request, env);
   if (request.method === "POST" && path === "/api/import") return importData(request, env);
