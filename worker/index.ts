@@ -413,18 +413,25 @@ async function kyoboMetadataFromUrl(rawUrl: string) {
   const data = (payload as Record<string, unknown>).data;
   if (!data || typeof data !== "object") throw new Error("kyobo_product_not_found");
   const top = data as Record<string, unknown>;
-  const titleBlock = top.top && typeof top.top === "object" ? (top.top as Record<string, unknown>).title : null;
+  const topBlock = top.top && typeof top.top === "object" ? top.top as Record<string, unknown> : null;
+  const titleBlock = topBlock?.title;
   const mainTitle = titleBlock && typeof titleBlock === "object" ? (titleBlock as Record<string, unknown>).main : null;
   const titleValue = mainTitle && typeof mainTitle === "object" ? (mainTitle as Record<string, unknown>).value : null;
   const title = typeof titleValue === "string" ? decodeHtml(titleValue).slice(0, 300) : "";
-  const info = top.top && typeof top.top === "object" ? (top.top as Record<string, unknown>).order : null;
-  const order = info && typeof info === "object" ? (info as Record<string, unknown>).price : null;
+  const order = topBlock?.order;
   const priceData = order && typeof order === "object" ? order as Record<string, unknown> : null;
   const priceValue = priceData?.discountPrice ?? priceData?.price;
   const price = typeof priceValue === "number" && Number.isFinite(priceValue) ? priceValue : null;
+  const productInfo = top.info && typeof top.info === "object" ? top.info as Record<string, unknown> : null;
+  const isbn = typeof productInfo?.cmdtCode === "string" && /^(?:\d{13}|\d{9}[\dX])$/i.test(productInfo.cmdtCode)
+    ? productInfo.cmdtCode.toUpperCase()
+    : "";
+  const image = isbn
+    ? `https://contents.kyobobook.co.kr/sih/fit-in/400x0/pdt/${isbn}.jpg`
+    : "";
   if (!title) throw new Error("kyobo_product_title_missing");
 
-  return { title, image: "", price, currency: "KRW", source: sourceLabel(rawUrl) };
+  return { title, image, price, currency: "KRW", source: sourceLabel(rawUrl) };
 }
 
 async function metadataFromUrl(rawUrl: string) {
