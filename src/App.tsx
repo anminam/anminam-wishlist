@@ -86,8 +86,6 @@ const priorityLabels: Record<number, string> = { 1: "꼭 갖고 싶음", 2: "관
 
 function apiHeaders(json = false) {
   const headers = new Headers();
-  const token = sessionStorage.getItem("wishlist-admin-token");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (json) headers.set("Content-Type", "application/json");
   return headers;
 }
@@ -167,7 +165,6 @@ function App() {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [reserveWish, setReserveWish] = useState<Wish | null>(null);
@@ -205,6 +202,9 @@ function App() {
         setAllWishes(wishData.wishes);
         setCollections(collectionData.collections);
         setAdmin(wishData.admin);
+        if (window.location.pathname.startsWith("/admin") && !wishData.admin) {
+          setMessage("관리자 로그인을 사용할 수 없습니다. Cloudflare Access 설정을 확인해주세요.");
+        }
         setSharedTitle("");
         if (wishData.admin) {
           const noticeData = await api<{ notifications: Notice[] }>("/api/notifications", { headers: apiHeaders() });
@@ -250,7 +250,7 @@ function App() {
   }), [allWishes]);
 
   function openNewWish() {
-    if (!admin) { setShowLogin(true); return; }
+    if (!admin) { window.location.assign("/admin"); return; }
     setEditingId(null);
     setDraft(emptyDraft);
     setShowEditor(true);
@@ -266,21 +266,6 @@ function App() {
       tags: wish.tags.join(", "), track_price: Boolean(wish.track_price),
     });
     setShowEditor(true);
-  }
-
-  async function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const token = new FormData(event.currentTarget).get("token")?.toString().trim() || "";
-    sessionStorage.setItem("wishlist-admin-token", token);
-    try {
-      const result = await api<{ admin: boolean }>("/api/admin/session", { headers: apiHeaders() });
-      if (!result.admin) throw new Error("관리자 토큰이 맞지 않습니다.");
-      setShowLogin(false);
-      await loadData();
-    } catch (error) {
-      sessionStorage.removeItem("wishlist-admin-token");
-      setMessage(error instanceof Error ? error.message : "로그인하지 못했습니다.");
-    }
   }
 
   async function fetchMetadata() {
@@ -410,7 +395,7 @@ function App() {
         <nav className="top-actions" aria-label="주요 작업">
           {admin && <button className="quiet" onClick={() => setShowNotifications(true)}>알림{unread > 0 && <b>{unread}</b>}</button>}
           {admin && <button className="quiet" onClick={() => setShowCollections(true)}>컬렉션</button>}
-          {!sharedMode && <button className="quiet" onClick={() => admin ? (sessionStorage.removeItem("wishlist-admin-token"), void loadData()) : setShowLogin(true)}>{admin ? "관리 종료" : "관리자"}</button>}
+          {!sharedMode && <button className="quiet" onClick={() => window.location.assign(admin ? "/cdn-cgi/access/logout" : "/admin")}>{admin ? "관리 종료" : "관리자"}</button>}
           {!sharedMode && <button className="primary" onClick={openNewWish}>위시 추가</button>}
         </nav>
       </header>
@@ -477,7 +462,6 @@ function App() {
         </section>
       </div>
 
-      {showLogin && <Modal title="관리자 모드" onClose={() => setShowLogin(false)}><form className="stack-form" onSubmit={login}><p>등록과 편집에 사용하는 관리자 토큰을 입력하세요. 토큰은 현재 탭에만 보관됩니다.</p><label>관리자 토큰<input name="token" type="password" autoFocus required /></label><button className="primary" type="submit">관리 시작</button></form></Modal>}
 
       {showEditor && <Modal title={editingId ? "위시 수정" : "새 위시 기록"} onClose={() => setShowEditor(false)} wide><form className="editor-form" onSubmit={saveWish}>
         <div className="url-fetch"><label>상품 링크<input type="url" value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} required placeholder="https://" /></label><button type="button" onClick={() => void fetchMetadata()} disabled={fetchingMeta || !draft.url}>{fetchingMeta ? "읽는 중" : "정보 가져오기"}</button></div>

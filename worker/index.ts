@@ -1,4 +1,4 @@
-type AppEnv = Env & { ADMIN_TOKEN?: string };
+type AppEnv = Env & { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string };
 
 type Visibility = "public" | "unlisted" | "private";
 type WishStatus = "wanted" | "purchased" | "archived";
@@ -109,19 +109,90 @@ function normalizeTags(value: unknown) {
   return [...new Set(source.map((tag) => normalizeText(tag, 30).replace(/^#+/, "")).filter(Boolean))].slice(0, 12);
 }
 
+type AccessJwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
+let cachedAccessKeys: { keys: AccessJwk[]; expiresAt: number } | null = null;
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function getAccessTeamHost(value: string) {
+  const trimmed = value.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  const team = trimmed.endsWith(".cloudflareaccess.com")
+    ? trimmed.slice(0, -".cloudflareaccess.com".length)
+    : trimmed;
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(team) ? `${team}.cloudflareaccess.com` : null;
+}
+
+async function loadAccessKeys(teamHost: string, forceRefresh = false) {
+  if (!forceRefresh && cachedAccessKeys && cachedAccessKeys.expiresAt > Date.now()) return cachedAccessKeys.keys;
+  const response = await fetch(`https://${teamHost}/cdn-cgi/access/certs`, {
+    headers: { accept: "application/json" },
+    cf: { cacheTtl: forceRefresh ? 0 : 300, cacheEverything: true },
+  });
+  if (!response.ok) throw new Error("access_keys_unavailable");
+  const data = await response.json() as { keys?: AccessJwk[] };
+  if (!Array.isArray(data.keys)) throw new Error("access_keys_invalid");
+  cachedAccessKeys = { keys: data.keys, expiresAt: Date.now() + 5 * 60 * 1000 };
+  return data.keys;
+}
+
+function getAccessToken(request: Request) {
+  const assertion = request.headers.get("cf-access-jwt-assertion");
+  if (assertion) return assertion;
+  const cookie = request.headers.get("cookie") || "";
+  for (const part of cookie.split(";")) {
+    const [name, ...value] = part.trim().split("=");
+    if (name === "CF_Authorization") return value.join("=");
+  }
+  return "";
+}
+
+async function isValidAccessToken(request: Request, teamHost: string, audience: string) {
+  try {
+    const token = getAccessToken(request);
+    const segments = token.split(".");
+    if (segments.length !== 3) return false;
+    const header = JSON.parse(new TextDecoder().decode(decodeBase64Url(segments[0]))) as { alg?: string; kid?: string };
+    const claims = JSON.parse(new TextDecoder().decode(decodeBase64Url(segments[1]))) as {
+      aud?: string | string[]; iss?: string; exp?: number; nbf?: number;
+    };
+    if (header.alg !== "RS256" || !header.kid) return false;
+    const now = Math.floor(Date.now() / 1000);
+    const issuer = `https://${teamHost}`;
+    const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (
+      claims.iss !== issuer || !audiences.includes(audience) ||
+      typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= now ||
+      (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf > now))
+    ) return false;
+    let keys = await loadAccessKeys(teamHost);
+    let jwk = keys.find((key) => key.kid === header.kid && (!key.alg || key.alg === "RS256"));
+    if (!jwk) {
+      keys = await loadAccessKeys(teamHost, true);
+      jwk = keys.find((key) => key.kid === header.kid && (!key.alg || key.alg === "RS256"));
+    }
+    if (!jwk) return false;
+    const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    return await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      decodeBase64Url(segments[2]),
+      new TextEncoder().encode(`${segments[0]}.${segments[1]}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function isAuthorized(request: Request, env: AppEnv) {
-  if (!env.ADMIN_TOKEN) return false;
-  const authorization = request.headers.get("authorization") || "";
-  const provided = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  const encoder = new TextEncoder();
-  const [providedHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
-    crypto.subtle.digest("SHA-256", encoder.encode(env.ADMIN_TOKEN)),
-  ]);
-  const workerSubtle = crypto.subtle as SubtleCrypto & {
-    timingSafeEqual(a: ArrayBuffer, b: ArrayBuffer): boolean;
-  };
-  return workerSubtle.timingSafeEqual(providedHash, expectedHash);
+  const teamHost = env.ACCESS_TEAM_DOMAIN ? getAccessTeamHost(env.ACCESS_TEAM_DOMAIN) : null;
+  const audience = env.ACCESS_AUD?.trim();
+  if (!teamHost || !audience) return false;
+  return isValidAccessToken(request, teamHost, audience);
 }
 
 function isSafePublicHttpUrl(raw: string) {

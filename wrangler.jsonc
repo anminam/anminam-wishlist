@@ -5,6 +5,10 @@
   "compatibility_date": "2026-09-30",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "https://quiet-sound-416c.cloudflareaccess.com",
+    "ACCESS_AUD": "0d15264719b1f37c8dbc939993febe1f62db892dffeee17f4fd7135500e28191"
+  },
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
