@@ -484,7 +484,7 @@ function App() {
   return (
     <main className={sharedMode ? "shared-mode" : ""}>
       <header className="topbar">
-        <a className="wordmark" href="/" aria-label="안미남 위시리스트 홈"><span>안미남</span><small>wish archive</small></a>
+        <a className="wordmark" href="/" aria-label="안미남의 위시리스트 홈"><span>안미남의 위시리스트</span></a>
         <nav className="top-actions" aria-label="주요 작업">
           {admin && <button className="quiet" onClick={() => setShowNotifications(true)}>알림{unread > 0 && <b>{unread}</b>}</button>}
           {admin && <button className="quiet" onClick={() => setShowCollections(true)}>컬렉션</button>}
@@ -493,22 +493,14 @@ function App() {
         </nav>
       </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="kicker">{sharedMode ? "함께 보는 목록" : "개인 위시 아카이브"}</p>
-          <h1>{sharedMode ? sharedTitle : <>
-            <span className="hero-desktop">마음에 남은 것을</span><span className="hero-desktop">잊지 않는 방법.</span>
-            <span className="hero-mobile">마음에 남은</span><span className="hero-mobile">것을 잊지 않는</span><span className="hero-mobile">방법.</span>
-          </>}</h1>
-          <p>{sharedMode ? sharedDescription || "좋아하는 것들을 한곳에 모았습니다." : "사고 싶은 마음부터 실제로 산 뒤의 기록까지. 링크와 이유, 가격의 변화를 차분히 모아둡니다."}</p>
-        </div>
-        {!sharedMode && <div className="hero-ledger" aria-label="위시 요약">
+      {!sharedMode && <section className="hero">
+        <div className="hero-ledger" aria-label="위시 요약">
           <div><strong>{String(stats.wanted).padStart(2, "0")}</strong><span>기다리는 위시</span></div>
           <div><strong>{String(stats.purchased).padStart(2, "0")}</strong><span>구매한 것</span></div>
           <div className="total"><strong>{formatPrice(stats.total)}</strong><span>현재 위시 합계</span></div>
           {admin && <div className="budget-summary"><div><strong>{formatPrice(monthlySpend)}</strong><span>이번 달 구매 지출{hasActiveBudget ? ` · 예산 ${formatPrice(activeBudget)}` : ""}</span></div><button className="quiet" onClick={() => setShowBudget(true)}>예산·구매 기록</button></div>}
-        </div>}
-      </section>
+        </div>
+      </section>}
 
       {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="알림 닫기">×</button></div>}
 

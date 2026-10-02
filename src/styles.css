@@ -25,9 +25,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 main { min-height: 100vh; padding: 0 28px 80px; max-width: 1680px; margin: 0 auto; }
 .topbar { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--ink); }
-.wordmark { display: flex; align-items: baseline; gap: 10px; text-decoration: none; }
+.wordmark { display: flex; align-items: baseline; text-decoration: none; }
 .wordmark span { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 23px; font-weight: 700; }
-.wordmark small { color: var(--muted); font-size: 11px; }
 .top-actions { display: flex; align-items: center; gap: 5px; }
 
 button { border: 1px solid var(--ink); background: transparent; color: var(--ink); padding: 9px 13px; border-radius: 4px; }
@@ -38,13 +37,8 @@ button.icon-button { border: 0; padding: 0; font-size: 30px; line-height: 1; wid
 .top-actions button { font-size: 13px; }
 .top-actions b { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--lime); color: var(--ink); font-size: 10px; }
 
-.hero { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr); gap: 80px; padding: 70px 0 54px; border-bottom: 1px solid var(--ink); }
-.kicker { margin: 0 0 22px; color: var(--teal); font-size: 13px; font-weight: 700; }
-.hero h1 { margin: 0; max-width: 890px; font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: clamp(50px, 7.2vw, 110px); font-weight: 500; letter-spacing: -.065em; line-height: .95; }
-.hero h1 > span { display: block; }
-.hero h1 > .hero-mobile { display: none; }
-.hero-copy > p:last-child { max-width: 620px; margin: 30px 0 0; color: var(--muted); line-height: 1.75; }
-.hero-ledger { align-self: end; display: grid; grid-template-columns: 1fr 1fr; border-top: 3px solid var(--teal); }
+.hero { padding: 42px 0 35px; border-bottom: 1px solid var(--ink); }
+.hero-ledger { display: grid; grid-template-columns: 1fr 1fr; border-top: 3px solid var(--teal); }
 .hero-ledger > div { padding: 18px 4px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
 .hero-ledger > div:nth-child(even) { text-align: right; }
 .hero-ledger .total { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; text-align: left; }
@@ -195,19 +189,15 @@ label small { color: var(--muted); font-weight: 400; }
 .budget-report span, .budget-report small { color: var(--muted); font-size: 12px; }
 .budget-report strong { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 28px; font-weight: 500; }
 
-.shared-mode .hero { grid-template-columns: 1fr; }
-.shared-mode .hero-copy { max-width: 980px; }
 .shared-mode .archive-layout { grid-template-columns: 1fr; }
 
 @media (max-width: 1200px) {
   .wish-list.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wish-list.compact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .hero { gap: 45px; }
 }
 
 @media (max-width: 900px) {
   main { padding: 0 18px 60px; }
-  .hero { grid-template-columns: 1fr; gap: 36px; padding-top: 50px; }
   .hero-ledger { max-width: 560px; }
   .archive-layout { grid-template-columns: 1fr; gap: 24px; }
   .index-rail { padding: 0; border: 0; overflow-x: auto; }
@@ -225,14 +215,9 @@ label small { color: var(--muted); font-weight: 400; }
 @media (max-width: 620px) {
   main { padding: 0 13px 45px; }
   .topbar { min-height: 64px; }
-  .wordmark small, .top-actions .quiet { display: none; }
+  .top-actions .quiet { display: none; }
   .top-actions button { padding: 8px 10px; }
-  .hero { padding: 42px 0 35px; }
-  .hero h1 { font-size: clamp(44px, 14vw, 70px); }
-  .hero h1 > span { word-break: keep-all; }
-  .hero h1 > .hero-desktop { display: none; }
-  .hero h1 > .hero-mobile { display: block; }
-  .hero-copy > p:last-child { margin-top: 22px; }
+  .wordmark span { font-size: 20px; }
   .archive-layout { padding-top: 26px; }
   .filterbar { grid-template-columns: 1fr auto; margin-bottom: 30px; }
   .filterbar select { min-width: 0; }
