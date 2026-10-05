@@ -20,6 +20,8 @@ type WishInput = {
   visibility?: unknown;
   collection_id?: unknown;
   track_price?: unknown;
+  planned_month?: unknown;
+  review_after?: unknown;
   tags?: unknown;
 };
 
@@ -48,6 +50,8 @@ type WishRow = {
   last_price_checked_at: string | null;
   last_price_check_status: "unknown" | "pending" | "success" | "unavailable" | "error";
   purchase_price: number | null;
+  planned_month: string | null;
+  review_after: string | null;
   created_at: string;
   updated_at: string;
   tags?: string[];
@@ -517,6 +521,7 @@ const WISH_COLUMNS = `
   w.category, w.reason, w.source, w.purchased, w.status, w.priority,
   w.target_price, w.purchased_at, w.visibility, w.share_slug, w.collection_id,
   w.track_price, w.last_price_checked_at, w.last_price_check_status, w.purchase_price, w.created_at, w.updated_at,
+  w.planned_month, w.review_after,
   c.name AS collection_name, c.slug AS collection_slug
 `;
 
@@ -535,7 +540,7 @@ async function decorateWishes(env: AppEnv, wishes: WishRow[], admin: boolean) {
   for (const row of prices.results) {
     const history = priceMap.get(row.wish_id) || [];
     history.push({ price: row.price, captured_at: row.captured_at });
-    priceMap.set(row.wish_id, history.slice(-20));
+    priceMap.set(row.wish_id, history.slice(-100));
   }
   const reservationMap = new Map(reservations.results.map((row) => [row.wish_id, row]));
   return wishes.map((wish) => {
@@ -630,6 +635,7 @@ function wishValues(input: WishInput) {
     visibility: normalizeVisibility(input.visibility),
     collectionId: normalizeNullableText(input.collection_id, 100),
     trackPrice: input.track_price === true || input.track_price === 1 ? 1 : 0,
+    plannedMonth: isMonth(input.planned_month) ? input.planned_month : null,
     tags: normalizeTags(input.tags),
   };
 }
@@ -646,14 +652,14 @@ async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext) 
     INSERT INTO wishes (
       id, title, url, image_url, image_key, price, currency, category, reason, source,
       purchased, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
-      collection_id, track_price
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      collection_id, track_price, planned_month
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id, values.title, values.url, values.imageUrl, values.imageKey, values.price, values.currency,
     values.category, values.reason, values.source || sourceLabel(values.url), values.status === "purchased" ? 1 : 0,
     values.status, values.priority, values.targetPrice, values.status === "purchased" ? new Date().toISOString() : null,
     values.status === "purchased" ? values.purchasePrice ?? values.price : null,
-    values.visibility, shareSlug, values.collectionId, values.trackPrice,
+    values.visibility, shareSlug, values.collectionId, values.trackPrice, values.plannedMonth,
   ).run();
   await replaceWishTags(env, id, values.tags);
   if (values.imageUrl && !values.imageKey) {
@@ -683,7 +689,7 @@ async function updateWish(request: Request, env: AppEnv, id: string) {
     UPDATE wishes SET
       title = ?, url = ?, image_url = ?, image_key = ?, price = ?, currency = ?, category = ?,
       reason = ?, source = ?, purchased = ?, status = ?, priority = ?, target_price = ?,
-      purchased_at = ?, purchase_price = ?, visibility = ?, collection_id = ?, track_price = ?, updated_at = datetime('now')
+      purchased_at = ?, purchase_price = ?, visibility = ?, collection_id = ?, track_price = ?, planned_month = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(
     values.title, values.url, values.imageUrl, imageKey, values.price, values.currency, values.category,
@@ -691,7 +697,7 @@ async function updateWish(request: Request, env: AppEnv, id: string) {
     values.status, values.priority, values.targetPrice, purchasedAt,
     values.status === "purchased" ? values.purchasePrice ?? existing.purchase_price ?? values.price : existing.purchase_price,
     values.visibility,
-    values.collectionId, values.trackPrice, id,
+    values.collectionId, values.trackPrice, values.plannedMonth, id,
   ).run();
   await replaceWishTags(env, id, values.tags);
   if (existing.image_key && existing.image_key !== imageKey) await env.WISH_IMAGES.delete(existing.image_key);
@@ -722,6 +728,19 @@ async function updateWishStatus(request: Request, env: AppEnv, id: string) {
 
 function isMonth(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+async function updateWishReview(request: Request, env: AppEnv, id: string) {
+  if (!await isAuthorized(request, env)) return unauthorized();
+  const body = await readJson(request);
+  const days = body.days;
+  if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 365) {
+    return json({ error: "다시 살펴볼 기간을 올바르게 입력해주세요." }, { status: 400 });
+  }
+  const result = await env.DB.prepare("UPDATE wishes SET review_after = date('now', ?), updated_at = datetime('now') WHERE id = ? AND status = 'wanted'")
+    .bind(`+${days} days`, id).run();
+  if (!result.meta.changes) return json({ error: "위시를 찾을 수 없습니다." }, { status: 404 });
+  return json({ ok: true });
 }
 
 async function listMonthlyBudgets(request: Request, env: AppEnv) {
@@ -933,7 +952,7 @@ async function exportData(request: Request, env: AppEnv) {
   const backup = { version: 1, exported_at: new Date().toISOString(), ...Object.fromEntries(entries) };
   if (new URL(request.url).searchParams.get("format") === "csv") {
     const wishes = await queryWishes(request, env, { admin: true });
-    const headers = ["title", "url", "price", "purchase_price", "purchased_at", "target_price", "currency", "category", "source", "status", "priority", "tags", "reason"];
+    const headers = ["title", "url", "price", "purchase_price", "purchased_at", "target_price", "planned_month", "currency", "category", "source", "status", "priority", "tags", "reason"];
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers.join(","), ...wishes.map((wish) => headers.map((key) => escape(key === "tags" ? wish.tags?.join("|") : wish[key as keyof WishRow])).join(","))].join("\n");
     return new Response(`\uFEFF${csv}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=anminam-wishes.csv" } });
@@ -967,8 +986,8 @@ async function importData(request: Request, env: AppEnv) {
       INSERT OR REPLACE INTO wishes (
         id, title, url, image_url, image_key, price, currency, category, reason, source, purchased,
         created_at, updated_at, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
-        collection_id, track_price, last_price_checked_at, last_price_check_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        collection_id, track_price, last_price_checked_at, last_price_check_status, planned_month, review_after
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       id, title, url, normalizeNullableText(row.image_url, 2048), normalizeNullableText(row.image_key, 512), normalizeInteger(row.price),
       normalizeText(row.currency, 8) || "KRW", normalizeNullableText(row.category, 100), normalizeNullableText(row.reason, 2000),
@@ -978,6 +997,7 @@ async function importData(request: Request, env: AppEnv) {
       normalizeVisibility(row.visibility), normalizeText(row.share_slug, 100) || crypto.randomUUID().slice(0, 16),
       normalizeNullableText(row.collection_id, 100), row.track_price === 1 ? 1 : 0, normalizeNullableText(row.last_price_checked_at, 40),
       ["unknown", "pending", "success", "unavailable", "error"].includes(normalizeText(row.last_price_check_status, 20)) ? normalizeText(row.last_price_check_status, 20) : "unknown",
+      isMonth(row.planned_month) ? row.planned_month : null, /^\d{4}-\d{2}-\d{2}$/.test(normalizeText(row.review_after, 20)) ? normalizeText(row.review_after, 20) : null,
     ));
   }
   for (const row of asRows(backup.monthly_budgets, 120)) {
@@ -1065,6 +1085,8 @@ async function handleRequest(request: Request, env: AppEnv, ctx: ExecutionContex
   if (request.method === "DELETE" && collectionMatch) return deleteCollection(request, env, decodeURIComponent(collectionMatch[1]));
   const statusMatch = path.match(/^\/api\/wishes\/([^/]+)\/status$/);
   if (request.method === "PATCH" && statusMatch) return updateWishStatus(request, env, decodeURIComponent(statusMatch[1]));
+  const reviewMatch = path.match(/^\/api\/wishes\/([^/]+)\/review$/);
+  if (request.method === "PATCH" && reviewMatch) return updateWishReview(request, env, decodeURIComponent(reviewMatch[1]));
   const priceMatch = path.match(/^\/api\/wishes\/([^/]+)\/check-price$/);
   if (request.method === "POST" && priceMatch) return manualPriceCheck(request, env, decodeURIComponent(priceMatch[1]));
   const reservationMatch = path.match(/^\/api\/wishes\/([^/]+)\/reservations$/);

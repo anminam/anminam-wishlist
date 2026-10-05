@@ -109,7 +109,7 @@ select { min-width: 145px; }
 .price-line small { color: var(--muted); }
 .reason { margin: 12px 0 0; color: #55574f; font-size: 13px; line-height: 1.65; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 12px; color: var(--teal); font-size: 11px; }
-.sparkline { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--muted); font-size: 10px; }
+.sparkline { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 0; border: 0; border-radius: 0; color: var(--muted); background: transparent; font-size: 10px; }
 .sparkline svg { width: 68px; height: 24px; overflow: visible; }
 .sparkline polyline { fill: none; stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .sparkline.fell { color: var(--teal); }
@@ -188,8 +188,50 @@ label small { color: var(--muted); font-weight: 400; }
 .budget-report { display: grid; gap: 6px; padding: 15px; border-top: 2px solid var(--teal); border-bottom: 1px solid var(--line); }
 .budget-report span, .budget-report small { color: var(--muted); font-size: 12px; }
 .budget-report strong { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 28px; font-weight: 500; }
+.budget-report > div { display: grid; gap: 5px; }
+.budget-report > div + div { padding-top: 9px; border-top: 1px solid var(--line); }
 
 .shared-mode .archive-layout { grid-template-columns: 1fr; }
+.review-dashboard { margin-top: 28px; padding: 18px 0 24px; border-top: 3px solid var(--teal); border-bottom: 1px solid var(--ink); }
+.dashboard-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 18px; }
+.dashboard-heading h2 { margin: 0; font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 27px; font-weight: 500; }
+.dashboard-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.dashboard-heading > span { color: var(--muted); font-size: 11px; }
+.dashboard-grid { display: grid; grid-template-columns: 1.15fr .85fr 1fr; gap: 22px; }
+.dashboard-column { min-width: 0; padding-right: 18px; border-right: 1px solid var(--line); }
+.dashboard-column:last-child { padding-right: 0; border-right: 0; }
+.dashboard-column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.dashboard-column-head h3 { margin: 0; font-size: 13px; }
+.dashboard-column-head b { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 50%; background: var(--lime); font-size: 10px; }
+.dashboard-row { display: grid; gap: 5px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.dashboard-row > a { overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-row > small, .dashboard-empty { color: var(--muted); font-size: 10px; }
+.dashboard-row > div { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.dashboard-row button { padding: 0; border: 0; color: var(--teal); font-size: 10px; text-decoration: underline; }
+.dashboard-row button.danger { color: var(--danger); }
+.dashboard-empty { margin: 13px 0 0; line-height: 1.5; }
+.plan-summary { display: grid; gap: 3px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.plan-summary strong { font-family: "Iowan Old Style", Baskerville, Georgia, serif; font-size: 22px; font-weight: 500; }
+.plan-summary span { color: var(--muted); font-size: 10px; }
+.dashboard-plain-row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
+.dashboard-plain-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-plain-row strong { flex: 0 0 auto; font-weight: 600; }
+.shared-description { max-width: 650px; line-height: 1.6; }
+.gift-note { display: grid; gap: 5px; margin: -5px 0 28px; padding: 13px 15px; border-left: 3px solid var(--teal); background: rgba(216, 240, 106, .22); }
+.gift-note strong { font-size: 12px; }
+.gift-note span { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.planned-label { margin: 7px 0 0; color: var(--teal); font-size: 10px; }
+.price-history { display: grid; gap: 14px; }
+.price-history > p { margin: -6px 0 0; line-height: 1.5; }
+.history-chart { padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
+.history-chart svg { display: block; width: 100%; height: 170px; overflow: visible; }
+.history-chart polyline { fill: none; stroke: var(--teal); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.history-chart > div { display: flex; justify-content: space-between; margin-top: 10px; color: var(--muted); font-size: 10px; }
+.history-single { color: var(--muted); font-size: 12px; }
+.history-list { display: grid; max-height: 280px; overflow: auto; }
+.history-list > div { display: flex; justify-content: space-between; gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 11px; }
+.history-list time { color: var(--muted); }
+.history-list strong { white-space: nowrap; }
 
 @media (max-width: 1200px) {
   .wish-list.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -210,11 +252,19 @@ label small { color: var(--muted); font-weight: 400; }
   .filterbar { grid-template-columns: 1fr 1fr auto; }
   .filterbar .search { grid-column: 1 / -1; }
   .option-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-grid { grid-template-columns: 1fr 1fr; }
+  .dashboard-column:nth-child(2) { padding-right: 0; border-right: 0; }
+  .dashboard-column:last-child { grid-column: 1 / -1; padding-top: 15px; border-top: 1px solid var(--line); }
 }
 
 @media (max-width: 620px) {
   main { padding: 0 13px 45px; }
   .topbar { min-height: 64px; }
+  .review-dashboard { margin-top: 20px; }
+  .dashboard-grid { grid-template-columns: 1fr; gap: 16px; }
+  .dashboard-column, .dashboard-column:nth-child(2), .dashboard-column:last-child { grid-column: auto; padding: 0; border: 0; }
+  .dashboard-column + .dashboard-column { padding-top: 14px; border-top: 1px solid var(--line); }
+  .dashboard-heading h2 { font-size: 24px; }
   .top-actions .quiet { display: none; }
   .top-actions button { padding: 8px 10px; }
   .wordmark span { font-size: 20px; }

@@ -27,6 +27,8 @@ type Wish = {
   last_price_checked_at: string | null;
   last_price_check_status: "unknown" | "pending" | "success" | "unavailable" | "error";
   purchase_price: number | null;
+  planned_month: string | null;
+  review_after: string | null;
   purchased_at: string | null;
   created_at: string;
   updated_at: string;
@@ -73,12 +75,13 @@ type Draft = {
   collection_id: string;
   tags: string;
   track_price: boolean;
+  planned_month: string;
 };
 
 const emptyDraft: Draft = {
   url: "", title: "", image_url: "", image_key: "", price: "", purchase_price: "", target_price: "",
   currency: "KRW", category: "", source: "", reason: "", status: "wanted",
-  priority: 2, visibility: "public", collection_id: "", tags: "", track_price: false,
+  priority: 2, visibility: "public", collection_id: "", tags: "", track_price: false, planned_month: "",
 };
 
 const statusLabels: Record<Status, string> = {
@@ -142,20 +145,33 @@ function wishImage(wish: Wish) {
   return wish.image_key ? `/api/images/${wish.image_key}` : wish.image_url || "";
 }
 
-function PriceSparkline({ history }: { history: Wish["price_history"] }) {
-  if (history.length < 2) return null;
+function PriceSparkline({ history, onClick }: { history: Wish["price_history"]; onClick: () => void }) {
+  if (!history.length) return null;
   const values = history.map((point) => point.price);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${30 - ((value - min) / range) * 26}`).join(" ");
-  const fell = values.at(-1)! < values[0];
+  const points = values.map((value, index) => `${(index / Math.max(values.length - 1, 1)) * 100},${30 - ((value - min) / range) * 26}`).join(" ");
+  const fell = values.length > 1 && values.at(-1)! < values[0];
   return (
-    <div className={`sparkline ${fell ? "fell" : ""}`} title={`가격 기록 ${history.length}개`}>
-      <svg viewBox="0 0 100 32" role="img" aria-label="가격 변화 그래프"><polyline points={points} /></svg>
-      <span>{fell ? "가격 하락" : "가격 기록"}</span>
-    </div>
+    <button className={`sparkline ${fell ? "fell" : ""}`} title={`가격 기록 ${history.length}개 · 눌러서 자세히 보기`} onClick={onClick}>
+      {values.length > 1 && <svg viewBox="0 0 100 32" role="img" aria-label="가격 변화 그래프"><polyline points={points} /></svg>}
+      <span>{fell ? "가격 하락" : `가격 기록 ${history.length}개 · 자세히`}</span>
+    </button>
   );
+}
+
+function PriceHistory({ wish }: { wish: Wish }) {
+  const history = wish.price_history;
+  const values = history.map((point) => point.price);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const points = values.map((value, index) => `${(index / Math.max(values.length - 1, 1)) * 100},${90 - ((value - min) / (max - min || 1)) * 78}`).join(" ");
+  return <div className="price-history">
+    <p className="muted">{wish.title}</p>
+    {history.length > 1 ? <div className="history-chart"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="날짜별 가격 변화 그래프"><polyline points={points} /></svg><div><span>최저 {formatPrice(min, wish.currency)}</span><span>최고 {formatPrice(max, wish.currency)}</span></div></div> : <p className="history-single">저장된 가격 기록이 {history.length}개 있습니다.</p>}
+    <div className="history-list">{[...history].reverse().map((point) => <div key={`${point.captured_at}-${point.price}`}><time>{new Date(`${point.captured_at.replace(" ", "T")}Z`).toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time><strong>{formatPrice(point.price, wish.currency)}</strong></div>)}</div>
+  </div>;
 }
 
 function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
@@ -198,6 +214,7 @@ function App() {
   const [budgetAmount, setBudgetAmount] = useState("");
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [reserveWish, setReserveWish] = useState<Wish | null>(null);
+  const [priceDetailWish, setPriceDetailWish] = useState<Wish | null>(null);
   const [saving, setSaving] = useState(false);
   const [fetchingMeta, setFetchingMeta] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -300,6 +317,18 @@ function App() {
     total: allWishes.filter((wish) => wish.status === "wanted").reduce((sum, wish) => sum + (wish.price || 0), 0),
   }), [allWishes]);
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const reviewWishes = allWishes.filter((wish) => {
+    if (wish.status !== "wanted") return false;
+    if (wish.review_after) return new Date(`${wish.review_after}T00:00:00`).getTime() <= today.getTime();
+    const created = new Date(`${wish.created_at.replace(" ", "T")}Z`);
+    return today.getTime() - created.getTime() >= 90 * 24 * 60 * 60 * 1000;
+  }).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const priceIssueWishes = allWishes.filter((wish) => wish.status === "wanted" && wish.track_price === 1 && ["error", "unavailable"].includes(wish.last_price_check_status));
+  const thisMonthPlans = allWishes.filter((wish) => wish.status === "wanted" && wish.planned_month === currentMonth());
+  const plannedSpend = thisMonthPlans.reduce((sum, wish) => sum + (wish.price ?? 0), 0);
+
   const monthlySpend = useMemo(() => allWishes
     .filter((wish) => wish.status === "purchased" && purchaseMonth(wish.purchased_at) === currentMonth())
     .reduce((sum, wish) => sum + (wish.purchase_price ?? wish.price ?? 0), 0), [allWishes]);
@@ -308,6 +337,9 @@ function App() {
   const selectedMonthSpend = allWishes
     .filter((wish) => wish.status === "purchased" && purchaseMonth(wish.purchased_at) === budgetMonth)
     .reduce((sum, wish) => sum + (wish.purchase_price ?? wish.price ?? 0), 0);
+  const selectedMonthPlan = allWishes
+    .filter((wish) => wish.status === "wanted" && wish.planned_month === budgetMonth)
+    .reduce((sum, wish) => sum + (wish.price ?? 0), 0);
   const selectedMonthBudget = monthlyBudgets.find((item) => item.month === budgetMonth);
   const comparedWishes = compareIds.map((id) => allWishes.find((wish) => wish.id === id)).filter((wish): wish is Wish => Boolean(wish));
 
@@ -330,7 +362,7 @@ function App() {
       price: wish.price == null ? "" : String(wish.price), purchase_price: wish.purchase_price == null ? "" : String(wish.purchase_price), target_price: wish.target_price == null ? "" : String(wish.target_price),
       currency: wish.currency || "KRW", category: wish.category || "", source: wish.source || "", reason: wish.reason || "",
       status: wish.status, priority: wish.priority, visibility: wish.visibility, collection_id: wish.collection_id || "",
-      tags: wish.tags.join(", "), track_price: Boolean(wish.track_price),
+      tags: wish.tags.join(", "), track_price: Boolean(wish.track_price), planned_month: wish.planned_month || "",
     });
     setShowEditor(true);
   }
@@ -404,6 +436,14 @@ function App() {
     const result = await api<{ price: number | null }>(`/api/wishes/${wish.id}/check-price`, { method: "POST", headers: apiHeaders() });
     setMessage(result.price == null ? "이번에는 가격을 읽지 못했습니다." : `현재 가격은 ${formatPrice(result.price, wish.currency)}입니다.`);
     await loadData();
+  }
+
+  async function rescheduleReview(wish: Wish, days: number) {
+    try {
+      await api(`/api/wishes/${encodeURIComponent(wish.id)}/review`, { method: "PATCH", headers: apiHeaders(true), body: JSON.stringify({ days }) });
+      setMessage(days === 30 ? "한 달 뒤 다시 살펴보도록 미뤘습니다." : "90일 뒤 다시 살펴보도록 했습니다.");
+      await loadData();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "다시 살펴볼 날짜를 저장하지 못했습니다."); }
   }
 
   function toggleCompare(wish: Wish) {
@@ -502,6 +542,31 @@ function App() {
         </div>
       </section>}
 
+      {admin && !sharedMode && <section className="review-dashboard" aria-label="위시 정리">
+        <div className="dashboard-heading"><div><h2>살펴볼 목록</h2><p>잊고 있던 위시와 구매 계획을 정리해요.</p></div><span>{reviewWishes.length + priceIssueWishes.length}개 확인 필요</span></div>
+        <div className="dashboard-grid">
+          <section className="dashboard-column">
+            <div className="dashboard-column-head"><h3>다시 생각해볼 위시</h3><b>{reviewWishes.length}</b></div>
+            {reviewWishes.length ? reviewWishes.slice(0, 4).map((wish) => <article className="dashboard-row" key={wish.id}>
+              <a href={wish.url} target="_blank" rel="noreferrer">{wish.title}</a><small>{new Date(`${wish.created_at.replace(" ", "T")}Z`).toLocaleDateString("ko-KR")}에 추가</small>
+              <div><button onClick={() => void rescheduleReview(wish, 30)}>한 달 미루기</button><button onClick={() => void rescheduleReview(wish, 90)}>계속 원함</button><button className="danger" onClick={() => void changeStatus(wish, "archived")}>보관</button></div>
+            </article>) : <p className="dashboard-empty">지금 다시 살펴볼 위시가 없어요.</p>}
+          </section>
+          <section className="dashboard-column">
+            <div className="dashboard-column-head"><h3>이번 달 구매 계획</h3><b>{thisMonthPlans.length}</b></div>
+            <div className="plan-summary"><strong>{formatPrice(plannedSpend)}</strong><span>현재 가격 기준 · {currentMonth().replace("-", "년 ")}월</span></div>
+            {thisMonthPlans.slice(0, 3).map((wish) => <div className="dashboard-plain-row" key={wish.id}><span>{wish.title}</span><strong>{formatPrice(wish.price, wish.currency)}</strong></div>)}
+            {!thisMonthPlans.length && <p className="dashboard-empty">위시를 수정해 구매 예정 월을 정해보세요.</p>}
+          </section>
+          <section className="dashboard-column">
+            <div className="dashboard-column-head"><h3>가격 확인이 필요한 위시</h3><b>{priceIssueWishes.length}</b></div>
+            {priceIssueWishes.length ? priceIssueWishes.slice(0, 4).map((wish) => <article className="dashboard-row" key={wish.id}>
+              <a href={wish.url} target="_blank" rel="noreferrer">{wish.title}</a><small>{priceCheckLabel(wish)}</small><div><button onClick={() => void checkPrice(wish)}>다시 확인</button><button onClick={() => editWish(wish)}>정보 수정</button></div>
+            </article>) : <p className="dashboard-empty">가격 확인 오류가 없어요.</p>}
+          </section>
+        </div>
+      </section>}
+
       {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="알림 닫기">×</button></div>}
 
       <div className="archive-layout">
@@ -519,7 +584,8 @@ function App() {
             <div className="view-switch" aria-label="보기 방식">{(["grid", "compact", "list"] as View[]).map((item) => <button key={item} className={view === item ? "active" : ""} onClick={() => { setView(item); localStorage.setItem("wishlist-view", item); }} aria-label={`${item} 보기`}>{item === "grid" ? "▦" : item === "compact" ? "▥" : "☷"}</button>)}</div>
           </div>
 
-          <div className="collection-title"><div><h2>{sharedMode ? sharedTitle : statusLabels[status]}</h2><p>{wishes.length}개의 기록</p></div>{admin && selectedCollection && <button className="quiet" onClick={() => { const collection = collections.find((item) => item.id === selectedCollection); if (collection) share(`collection=${collection.slug}`); }}>컬렉션 링크 복사</button>}</div>
+          <div className="collection-title"><div><h2>{sharedMode ? sharedTitle : statusLabels[status]}</h2><p>{wishes.length}개의 기록</p>{sharedMode && sharedDescription && <p className="shared-description">{sharedDescription}</p>}</div>{admin && selectedCollection && <button className="quiet" onClick={() => { const collection = collections.find((item) => item.id === selectedCollection); if (collection) share(`collection=${collection.slug}`); }}>컬렉션 링크 복사</button>}</div>
+          {sharedMode && <aside className="gift-note"><strong>선물로 준비하고 싶다면</strong><span>상품의 ‘선물 준비하기’를 눌러 알려주세요. 준비 표시는 30일 동안 유지되며, 같은 선물을 겹쳐 고르는 일을 줄여줍니다.</span></aside>}
 
           {comparedWishes.length > 0 && !sharedMode && <section className="compare-panel" aria-label="위시 비교">
             <div className="compare-heading"><div><strong>나란히 비교</strong><span>{comparedWishes.length}/4개 선택</span></div><button className="quiet" onClick={() => setCompareIds([])}>비우기</button></div>
@@ -544,7 +610,8 @@ function App() {
                     <div className="card-labels"><span>{wish.collection_name || wish.category || "위시"}</span><span>{priorityLabels[wish.priority]}</span></div>
                     <a className="wish-title" href={wish.url} target="_blank" rel="noreferrer">{wish.title}</a>
                     <div className="price-line"><strong>{formatPrice(wish.price, wish.currency)}</strong>{wish.target_price != null && <small>목표 {formatPrice(wish.target_price, wish.currency)}</small>}{admin && wish.status === "purchased" && wish.purchase_price != null && <small>실결제 {formatPrice(wish.purchase_price, wish.currency)}</small>}</div>
-                    <PriceSparkline history={wish.price_history} />
+                    <PriceSparkline history={wish.price_history} onClick={() => setPriceDetailWish(wish)} />
+                    {wish.status === "wanted" && wish.planned_month && <p className="planned-label">구매 예정 {wish.planned_month.replace("-", "년 ")}월</p>}
                     {admin && wish.track_price === 1 && <p className={`price-status ${wish.last_price_check_status}`}>{priceCheckLabel(wish)}{wish.last_price_checked_at && <time>{new Date(`${wish.last_price_checked_at.replace(" ", "T")}Z`).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}</p>}
                     {wish.reason && <p className="reason">{wish.reason}</p>}
                     {wish.tags.length > 0 && <div className="tags">{wish.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
@@ -568,7 +635,7 @@ function App() {
         <div className="url-fetch"><label>상품 링크<input type="url" value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} required placeholder="https://" /></label><button type="button" onClick={() => void fetchMetadata()} disabled={fetchingMeta || !draft.url}>{fetchingMeta ? "읽는 중" : "정보 가져오기"}</button></div>
         <div className="editor-grid">
           <div className="image-editor"><div className="image-preview">{draft.image_url ? <img src={draft.image_key ? `/api/images/${draft.image_key}` : draft.image_url} alt="상품 미리보기" /> : <span>상품 이미지</span>}</div><label className="upload-button">{uploading ? "업로드 중" : "이미지 직접 올리기"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={uploadImage} disabled={uploading} /></label><label>이미지 URL<input value={draft.image_url} onChange={(event) => setDraft({ ...draft, image_url: event.target.value, image_key: "" })} /></label></div>
-          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="책, 패션, 장비" /></label><label>판매처<input value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })} /></label></div><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
+          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="책, 패션, 장비" /></label><label>판매처<input value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
         </div>
         <div className="option-grid"><label>상태<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Status })}><option value="wanted">갖고 싶음</option><option value="purchased">구매 완료</option><option value="archived">보관</option></select></label><label>우선순위<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })}><option value="1">꼭 갖고 싶음</option><option value="2">관심 있음</option><option value="3">나중에 생각</option></select></label><label>공개 범위<select value={draft.visibility} onChange={(event) => setDraft({ ...draft, visibility: event.target.value as Visibility })}><option value="public">공개</option><option value="unlisted">링크 공개</option><option value="private">비공개</option></select></label><label>컬렉션<select value={draft.collection_id} onChange={(event) => setDraft({ ...draft, collection_id: event.target.value })}><option value="">선택 안 함</option>{collections.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
         <label className="check-row"><input type="checkbox" checked={draft.track_price} onChange={(event) => setDraft({ ...draft, track_price: event.target.checked })} /><span>매일 가격을 확인하고 가격 하락을 알립니다.</span></label>
@@ -577,9 +644,11 @@ function App() {
 
       {showCollections && <CollectionManager collections={collections} onClose={() => setShowCollections(false)} onChanged={loadData} onMessage={setMessage} onShare={(slug) => share(`collection=${slug}`)} />}
 
+      {priceDetailWish && <Modal title="가격 기록" onClose={() => setPriceDetailWish(null)}><PriceHistory wish={priceDetailWish} /></Modal>}
+
       {showNotifications && <Modal title="새로운 소식" onClose={() => setShowNotifications(false)}><div className="notification-list">{notifications.length === 0 ? <p className="muted">아직 알림이 없습니다.</p> : notifications.map((notice) => <article className={notice.read_at ? "read" : ""} key={notice.id}><span>{notice.type === "reservation" ? "선물" : notice.type === "price_drop" ? "가격 하락" : "목표 가격"}</span><p>{notice.message}</p><time>{new Date(`${notice.created_at}Z`).toLocaleDateString("ko-KR")}</time></article>)}</div>{unread > 0 && <button className="primary full" onClick={async () => { await api("/api/notifications/read-all", { method: "POST", headers: apiHeaders() }); await loadData(); }}>모두 읽음으로 표시</button>}</Modal>}
 
-      {showBudget && <Modal title="월 예산·구매 기록" onClose={() => setShowBudget(false)}><form className="stack-form" onSubmit={saveBudget}><p>구매 완료로 바꿀 때 실제 결제 금액을 남기면 월별 지출에 반영됩니다.</p><label>기록할 월<input type="month" value={budgetMonth} onChange={(event) => setBudgetMonth(event.target.value)} required /></label><label>월 예산<input inputMode="numeric" value={budgetAmount} onChange={(event) => setBudgetAmount(event.target.value)} placeholder="예산 미설정" /><small>0원을 입력하면 예산을 0원으로 설정합니다.</small></label><div className="budget-report"><span>{budgetMonth} 구매 지출</span><strong>{formatPrice(selectedMonthSpend)}</strong>{selectedMonthBudget && <small>{selectedMonthBudget.amount > 0 ? `예산 ${formatPrice(selectedMonthBudget.amount)} 중 ${Math.round((selectedMonthSpend / selectedMonthBudget.amount) * 100)}% 사용` : "예산을 0원으로 설정했습니다."}</small>}</div><button className="primary" type="submit">예산 저장</button></form></Modal>}
+      {showBudget && <Modal title="월 예산·구매 기록" onClose={() => setShowBudget(false)}><form className="stack-form" onSubmit={saveBudget}><p>구매 완료로 바꾸면 실제 결제 금액에 반영됩니다. 예정 월을 적어둔 위시도 함께 확인할 수 있어요.</p><label>기록할 월<input type="month" value={budgetMonth} onChange={(event) => setBudgetMonth(event.target.value)} required /></label><label>월 예산<input inputMode="numeric" value={budgetAmount} onChange={(event) => setBudgetAmount(event.target.value)} placeholder="예산 미설정" /><small>0원을 입력하면 예산을 0원으로 설정합니다.</small></label><div className="budget-report"><div><span>구매 지출</span><strong>{formatPrice(selectedMonthSpend)}</strong></div><div><span>구매 예정액 · 현재 가격 기준</span><strong>{formatPrice(selectedMonthPlan)}</strong></div>{selectedMonthBudget && <small>{selectedMonthBudget.amount > 0 ? `예산 ${formatPrice(selectedMonthBudget.amount)} · 지출 ${Math.round((selectedMonthSpend / selectedMonthBudget.amount) * 100)}% · 예정 포함 ${Math.round(((selectedMonthSpend + selectedMonthPlan) / selectedMonthBudget.amount) * 100)}%` : "예산을 0원으로 설정했습니다."}</small>}</div><button className="primary" type="submit">예산 저장</button></form></Modal>}
 
       {reserveWish && <Modal title="선물 준비하기" onClose={() => setReserveWish(null)}><form className="stack-form" onSubmit={reserve}><p>다른 사람이 같은 선물을 준비하지 않도록 30일 동안 표시합니다. 위시 주인에게 이름과 메시지가 보일 수 있어요.</p><label>이름 또는 별명<input name="name" maxLength={60} placeholder="선택 입력" /></label><label>짧은 메시지<textarea name="message" maxLength={300} rows={3} placeholder="선택 입력" /></label><button className="primary" type="submit">준비 중으로 표시</button></form></Modal>}
     </main>
