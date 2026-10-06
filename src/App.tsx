@@ -121,6 +121,17 @@ function parsePrice(value: string) {
   return value.trim() && Number.isFinite(parsed) ? parsed : null;
 }
 
+function recommendCategory(url: string, title: string, source: string) {
+  const bookDomains = ["kyobobook.co.kr", "yes24.com", "aladin.co.kr", "ridibooks.com", "book.interpark.com", "book.naver.com", "books.google.com", "millie.co.kr"];
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (bookDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return "책";
+  } catch { /* 상품 링크를 입력하기 전에는 제목·판매처로만 판단합니다. */ }
+  const details = `${title} ${source}`;
+  if (/(도서|전자책|\be-?book\b|\bbook\b|isbn|책(?:$|\s|[(:【]))/i.test(details)) return "책";
+  return "";
+}
+
 function currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -205,6 +216,7 @@ function App() {
   const [sort, setSort] = useState("newest");
   const [view, setView] = useState<View>(() => (localStorage.getItem("wishlist-view") as View) || "grid");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [categoryEdited, setCategoryEdited] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [showCollections, setShowCollections] = useState(false);
@@ -286,12 +298,14 @@ function App() {
     const sharedTitle = params.get("title") || sharedText.replace(sharedUrl, "").trim();
     window.history.replaceState({}, "", window.location.pathname);
     setEditingId(null);
+    setCategoryEdited(false);
     setDraft({ ...emptyDraft, url: sharedUrl, title: sharedTitle.slice(0, 300) });
     setShowEditor(true);
     setMessage(sharedUrl ? "공유한 링크를 확인하고 상품 정보를 가져와 저장해주세요." : "공유한 내용을 확인한 뒤 상품 링크를 입력해주세요.");
   }, [admin, loading]);
 
   const categories = useMemo(() => [...new Set(allWishes.map((wish) => wish.category).filter((value): value is string => Boolean(value)))].sort(), [allWishes]);
+  const suggestedCategory = recommendCategory(draft.url, draft.title, draft.source);
 
   const wishes = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
@@ -352,12 +366,14 @@ function App() {
   function openNewWish() {
     if (!admin) { window.location.assign("/admin"); return; }
     setEditingId(null);
+    setCategoryEdited(false);
     setDraft(emptyDraft);
     setShowEditor(true);
   }
 
   function editWish(wish: Wish) {
     setEditingId(wish.id);
+    setCategoryEdited(true);
     setDraft({
       url: wish.url, title: wish.title, image_url: wish.image_url || "", image_key: wish.image_key || "",
       price: wish.price == null ? "" : String(wish.price), purchase_price: wish.purchase_price == null ? "" : String(wish.purchase_price), target_price: wish.target_price == null ? "" : String(wish.target_price),
@@ -375,7 +391,11 @@ function App() {
       const data = await api<{ title?: string; image?: string; price?: number | null; currency?: string; source?: string }>("/api/metadata", {
         method: "POST", headers: apiHeaders(true), body: JSON.stringify({ url: draft.url.trim() }),
       });
-      setDraft((current) => ({ ...current, title: data.title || current.title, image_url: data.image || current.image_url, image_key: "", price: data.price == null ? current.price : String(data.price), currency: data.currency || current.currency, source: data.source || current.source }));
+      setDraft((current) => {
+        const title = data.title || current.title;
+        const source = data.source || current.source;
+        return { ...current, title, image_url: data.image || current.image_url, image_key: "", price: data.price == null ? current.price : String(data.price), currency: data.currency || current.currency, source, category: categoryEdited ? current.category : recommendCategory(current.url, title, source) };
+      });
       setMessage("가져온 정보를 확인한 뒤 저장해주세요.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "상품 정보를 불러오지 못했습니다.");
@@ -636,10 +656,10 @@ function App() {
 
 
       {showEditor && <Modal title={editingId ? "위시 수정" : "새 위시 기록"} onClose={() => setShowEditor(false)} wide><form className="editor-form" onSubmit={saveWish}>
-        <div className="url-fetch"><label>상품 링크<input type="url" value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} required placeholder="https://" /></label><button type="button" onClick={() => void fetchMetadata()} disabled={fetchingMeta || !draft.url}>{fetchingMeta ? "읽는 중" : "정보 가져오기"}</button></div>
+        <div className="url-fetch"><label>상품 링크<input type="url" value={draft.url} onChange={(event) => { const url = event.target.value; setDraft((current) => ({ ...current, url, category: categoryEdited ? current.category : recommendCategory(url, current.title, current.source) })); }} required placeholder="https://" /></label><button type="button" onClick={() => void fetchMetadata()} disabled={fetchingMeta || !draft.url}>{fetchingMeta ? "읽는 중" : "정보 가져오기"}</button></div>
         <div className="editor-grid">
           <div className="image-editor"><div className="image-preview">{draft.image_url ? <img src={draft.image_key ? `/api/images/${draft.image_key}` : draft.image_url} alt="상품 미리보기" /> : <span>상품 이미지</span>}</div><label className="upload-button">{uploading ? "업로드 중" : "이미지 직접 올리기"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={uploadImage} disabled={uploading} /></label><label>이미지 URL<input value={draft.image_url} onChange={(event) => setDraft({ ...draft, image_url: event.target.value, image_key: "" })} /></label></div>
-          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="책, 패션, 장비" /></label><label>판매처<input value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
+          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => { const title = event.target.value; setDraft((current) => ({ ...current, title, category: categoryEdited ? current.category : recommendCategory(current.url, title, current.source) })); }} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => { setCategoryEdited(true); setDraft({ ...draft, category: event.target.value }); }} placeholder="책, 패션, 장비" />{suggestedCategory && <span className="category-suggestion">{draft.category === suggestedCategory ? `자동 추천: ${suggestedCategory}` : <>추천: {suggestedCategory} <button type="button" onClick={() => { setCategoryEdited(true); setDraft({ ...draft, category: suggestedCategory }); }}>적용</button></>}</span>}</label><label>판매처<input value={draft.source} onChange={(event) => { const source = event.target.value; setDraft((current) => ({ ...current, source, category: categoryEdited ? current.category : recommendCategory(current.url, current.title, source) })); }} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
         </div>
         <div className="option-grid"><label>상태<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Status })}><option value="wanted">갖고 싶음</option><option value="purchased">구매 완료</option><option value="archived">보관</option></select></label><label>우선순위<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })}><option value="1">꼭 갖고 싶음</option><option value="2">관심 있음</option><option value="3">나중에 생각</option></select></label><label>공개 범위<select value={draft.visibility} onChange={(event) => setDraft({ ...draft, visibility: event.target.value as Visibility })}><option value="public">공개</option><option value="unlisted">링크 공개</option><option value="private">비공개</option></select></label><label>컬렉션<select value={draft.collection_id} onChange={(event) => setDraft({ ...draft, collection_id: event.target.value })}><option value="">선택 안 함</option>{collections.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
         <label className="check-row"><input type="checkbox" checked={draft.track_price} onChange={(event) => setDraft({ ...draft, track_price: event.target.checked })} /><span>매일 가격을 확인하고 가격 하락을 알립니다.</span></label>

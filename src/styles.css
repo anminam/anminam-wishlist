@@ -164,6 +164,8 @@ label small { color: var(--muted); font-weight: 400; }
 .upload-button input { display: none; }
 .fields { display: grid; gap: 13px; }
 .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.category-suggestion { display: flex; align-items: center; gap: 6px; color: var(--teal); font-size: 10px; font-weight: 500; }
+.category-suggestion button { padding: 0; border: 0; color: var(--teal); background: transparent; font-size: 10px; text-decoration: underline; }
 .option-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
 .option-grid select { min-width: 0; }
 .check-row { display: flex; align-items: center; gap: 9px; font-weight: 500; }
