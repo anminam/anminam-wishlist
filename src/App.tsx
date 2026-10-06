@@ -210,6 +210,7 @@ function App() {
   const [showCollections, setShowCollections] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
+  const [showOverview, setShowOverview] = useState(false);
   const [budgetMonth, setBudgetMonth] = useState(currentMonth);
   const [budgetAmount, setBudgetAmount] = useState("");
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -526,6 +527,7 @@ function App() {
       <header className="topbar">
         <a className="wordmark" href="/" aria-label="안미남의 위시리스트 홈"><span>안미남의 위시리스트</span></a>
         <nav className="top-actions" aria-label="주요 작업">
+          {!sharedMode && <button className="overview-toggle" aria-expanded={showOverview} aria-controls="overview-panel" onClick={() => setShowOverview((open) => !open)}>{showOverview ? "요약 닫기" : "요약"}</button>}
           {admin && <button className="quiet" onClick={() => setShowNotifications(true)}>알림{unread > 0 && <b>{unread}</b>}</button>}
           {admin && <button className="quiet" onClick={() => setShowCollections(true)}>컬렉션</button>}
           {!sharedMode && <button className="quiet" onClick={() => window.location.assign(admin ? "/cdn-cgi/access/logout" : "/admin")}>{admin ? "관리 종료" : "관리자"}</button>}
@@ -533,16 +535,17 @@ function App() {
         </nav>
       </header>
 
-      {!sharedMode && <section className="hero">
+      {!sharedMode && <section className="overview-panel" id="overview-panel" aria-label="위시 요약과 정리" hidden={!showOverview}>
+      <section className="hero">
         <div className="hero-ledger" aria-label="위시 요약">
           <div><strong>{String(stats.wanted).padStart(2, "0")}</strong><span>기다리는 위시</span></div>
           <div><strong>{String(stats.purchased).padStart(2, "0")}</strong><span>구매한 것</span></div>
           <div className="total"><strong>{formatPrice(stats.total)}</strong><span>현재 위시 합계</span></div>
           {admin && <div className="budget-summary"><div><strong>{formatPrice(monthlySpend)}</strong><span>이번 달 구매 지출{hasActiveBudget ? ` · 예산 ${formatPrice(activeBudget)}` : ""}</span></div><button className="quiet" onClick={() => setShowBudget(true)}>예산·구매 기록</button></div>}
         </div>
-      </section>}
+      </section>
 
-      {admin && !sharedMode && <section className="review-dashboard" aria-label="위시 정리">
+      {admin && <section className="review-dashboard" aria-label="위시 정리">
         <div className="dashboard-heading"><div><h2>살펴볼 목록</h2><p>잊고 있던 위시와 구매 계획을 정리해요.</p></div><span>{reviewWishes.length + priceIssueWishes.length}개 확인 필요</span></div>
         <div className="dashboard-grid">
           <section className="dashboard-column">
@@ -565,6 +568,7 @@ function App() {
             </article>) : <p className="dashboard-empty">가격 확인 오류가 없어요.</p>}
           </section>
         </div>
+      </section>}
       </section>}
 
       {message && <div className="notice" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="알림 닫기">×</button></div>}
