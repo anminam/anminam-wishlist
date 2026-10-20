@@ -97,6 +97,23 @@ npm run deploy
 
 쇼핑몰이 자동 접근을 차단하면 자동 입력은 실패할 수 있으며, 이때는 수동으로 입력하면 됩니다.
 
+## GPT Action 위시 등록 API
+
+Custom GPT의 Actions에서 아래 OpenAPI 스키마를 가져오면 대화에서 위시를 등록할 수 있습니다.
+
+- 스키마 URL: `https://anminam-wishlist.minamhunmin.workers.dev/gpt-wish-openapi.yaml`
+- 인증 방식: API Key → Bearer
+- 전용 경로: `POST /api/gpt/wishes`
+
+API 키를 최소 32자의 무작위 값으로 만든 뒤 Worker secret으로 설정하고, 같은 값을 GPT Action의 Bearer API Key에 입력합니다.
+
+```bash
+openssl rand -hex 32
+npx wrangler secret put GPT_WISH_API_KEY
+```
+
+이 API 키는 GPT Action 설정에만 보관하고 코드, 프롬프트, 저장소에 넣지 않습니다. API는 새 공개 위시 추가만 허용하며 조회·수정·삭제 기능은 제공하지 않습니다. 키가 설정되기 전까지 API는 `503`을 반환합니다.
+
 ## 이미지 처리
 
 위시 저장 시 원본 이미지 URL을 가져와 R2에 복사합니다. 따라서 교보문고/무신사 등 원본 사이트의 핫링크 정책에 덜 영향을 받습니다.

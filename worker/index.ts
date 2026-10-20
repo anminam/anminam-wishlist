@@ -1,4 +1,4 @@
-type AppEnv = Env & { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string };
+type AppEnv = Env & { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string; GPT_WISH_API_KEY?: string };
 
 type Visibility = "public" | "unlisted" | "private";
 type WishStatus = "wanted" | "purchased" | "archived";
@@ -200,6 +200,22 @@ async function isAuthorized(request: Request, env: AppEnv) {
   const audience = env.ACCESS_AUD?.trim();
   if (!teamHost || !audience) return false;
   return isValidAccessToken(request, teamHost, audience);
+}
+
+function equalSecret(candidate: string, expected: string) {
+  const candidateBytes = new TextEncoder().encode(candidate);
+  const expectedBytes = new TextEncoder().encode(expected);
+  if (candidateBytes.length !== expectedBytes.length || expectedBytes.length < 32) return false;
+  let mismatch = 0;
+  for (let index = 0; index < expectedBytes.length; index += 1) mismatch |= candidateBytes[index] ^ expectedBytes[index];
+  return mismatch === 0;
+}
+
+function isGptAuthorized(request: Request, env: AppEnv) {
+  const expected = env.GPT_WISH_API_KEY?.trim();
+  const authorization = request.headers.get("authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return Boolean(expected && match && equalSecret(match[1], expected));
 }
 
 function isSafePublicHttpUrl(raw: string) {
@@ -726,9 +742,31 @@ function wishValues(input: WishInput) {
   };
 }
 
-async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext) {
-  if (!await isAuthorized(request, env)) return unauthorized();
-  const values = wishValues(await readJson(request) as WishInput);
+async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext, viaGptAction = false) {
+  if (viaGptAction) {
+    if (!env.GPT_WISH_API_KEY?.trim()) return json({ error: "GPT 위시 등록 API 키가 설정되지 않았습니다." }, { status: 503 });
+    if (!isGptAuthorized(request, env)) return unauthorized();
+  } else if (!await isAuthorized(request, env)) return unauthorized();
+
+  const body = await readJson(request, viaGptAction ? 16_000 : undefined) as WishInput;
+  const input: WishInput = viaGptAction ? {
+    title: body.title,
+    url: body.url,
+    image_url: body.image_url,
+    price: body.price,
+    currency: body.currency,
+    category: body.category,
+    reason: body.reason,
+    source: body.source,
+    priority: body.priority,
+    target_price: body.target_price,
+    track_price: body.track_price,
+    planned_month: body.planned_month,
+    tags: body.tags,
+    status: "wanted",
+    visibility: "public",
+  } : body;
+  const values = wishValues(input);
   if (!values.title || !isSafePublicHttpUrl(values.url)) return json({ error: "상품명과 올바른 URL이 필요합니다." }, { status: 400 });
   const duplicate = await env.DB.prepare("SELECT id FROM wishes WHERE url = ? LIMIT 1").bind(values.url).first();
   if (duplicate) return json({ error: "이미 저장된 상품 링크입니다.", existing_id: duplicate.id }, { status: 409 });
@@ -1151,6 +1189,7 @@ async function handleRequest(request: Request, env: AppEnv, ctx: ExecutionContex
   if (request.method === "GET" && path === "/api/admin/session") return json({ admin: await isAuthorized(request, env) });
   if (request.method === "GET" && path === "/api/wishes") return listWishes(request, env);
   if (request.method === "POST" && path === "/api/wishes") return createWish(request, env, ctx);
+  if (request.method === "POST" && path === "/api/gpt/wishes") return createWish(request, env, ctx, true);
   if (request.method === "POST" && path === "/api/metadata") return handleMetadata(request, env);
   if (request.method === "PUT" && path === "/api/uploads/image") return uploadImage(request, env);
   if (request.method === "GET" && path === "/api/collections") return listCollections(request, env);

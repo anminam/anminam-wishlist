@@ -1,0 +1,106 @@
+openapi: 3.1.0
+info:
+  title: Anminam Wishlist GPT Action
+  version: 1.0.0
+  description: Add an item to Anminam's public wishlist when the user explicitly asks to save it or sends a standalone product URL in the wishlist conversation.
+servers:
+  - url: https://anminam-wishlist.minamhunmin.workers.dev
+paths:
+  /api/gpt/wishes:
+    post:
+      operationId: addWishlistItem
+      summary: Add an item to the wishlist
+      description: >-
+        Create one public wishlist item. Only call this after the user explicitly asks to add or save a product, or sends a standalone product URL in the wishlist conversation.
+        Use the product page URL and only provide title, image, and price that are visible or confirmed from the supplied link.
+        Do not guess missing metadata. A 409 response means this URL is already saved.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - title
+                - url
+              properties:
+                title:
+                  type: string
+                  maxLength: 300
+                  description: Confirmed product name.
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: Public HTTP or HTTPS product page URL.
+                image_url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: Confirmed product image URL, if available.
+                price:
+                  type: integer
+                  minimum: 0
+                  description: Current product price in the specified currency, if confirmed.
+                currency:
+                  type: string
+                  maxLength: 8
+                  default: KRW
+                category:
+                  type: string
+                  maxLength: 100
+                source:
+                  type: string
+                  maxLength: 100
+                  description: Store name, if confirmed.
+                reason:
+                  type: string
+                  maxLength: 2000
+                  description: User-provided reason for wanting the item. Omit unless the user gave one.
+                priority:
+                  type: integer
+                  enum: [1, 2, 3]
+                  default: 2
+                target_price:
+                  type: integer
+                  minimum: 0
+                track_price:
+                  type: boolean
+                  default: false
+                planned_month:
+                  type: string
+                  pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+                tags:
+                  type: array
+                  maxItems: 12
+                  items:
+                    type: string
+                    maxLength: 30
+      responses:
+        '201':
+          description: Wishlist item created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wish:
+                    type: object
+                    additionalProperties: true
+        '400':
+          description: Invalid title, URL, or request body.
+        '401':
+          description: Missing or invalid API key.
+        '409':
+          description: This URL is already in the wishlist.
+        '503':
+          description: The GPT API key has not been configured on the Worker.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
