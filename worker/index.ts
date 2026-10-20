@@ -321,6 +321,7 @@ function looksLikeHtml(text: string) {
 function sourceLabel(rawUrl: string) {
   const host = new URL(rawUrl).hostname.replace(/^www\./, "").toLowerCase();
   if (host.includes("kyobobook.co.kr")) return "교보문고";
+  if (host === "smartstore.naver.com" || host === "m.smartstore.naver.com") return "네이버 스마트스토어";
   if (host.includes("musinsa")) return "무신사";
   return host;
 }
@@ -438,10 +439,87 @@ async function kyoboMetadataFromUrl(rawUrl: string) {
   return { title, image, price, currency: "KRW", source: sourceLabel(rawUrl) };
 }
 
+function findJsonValue(value: unknown, keys: string[]): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findJsonValue(item, keys);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  const object = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (object[key] !== undefined && object[key] !== null && object[key] !== "") return object[key];
+  }
+  for (const child of Object.values(object)) {
+    const found = findJsonValue(child, keys);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function naverProductMetadata(payload: unknown, rawUrl: string) {
+  const titleValue = findJsonValue(payload, ["channelProductName", "productName", "name"]);
+  const title = typeof titleValue === "string" ? decodeHtml(titleValue).trim().slice(0, 300) : "";
+  const imageValue = findJsonValue(payload, ["representativeImage", "imageUrl", "image"]);
+  const imageCandidate = typeof imageValue === "string"
+    ? imageValue
+    : imageValue && typeof imageValue === "object" && typeof (imageValue as Record<string, unknown>).url === "string"
+      ? (imageValue as Record<string, unknown>).url as string
+      : "";
+  const priceValue = findJsonValue(payload, ["discountedPrice", "discountPrice", "salePrice", "price"]);
+  const numericPrice = typeof priceValue === "number" ? priceValue : typeof priceValue === "string" ? Number(priceValue.replace(/[^0-9.]/g, "")) : NaN;
+  const image = imageCandidate ? new URL(imageCandidate, rawUrl).toString() : "";
+  if (!title) throw new Error("naver_product_title_missing");
+  return {
+    title,
+    image: isSafePublicHttpUrl(image) ? image : "",
+    price: Number.isFinite(numericPrice) ? numericPrice : null,
+    currency: "KRW",
+    source: sourceLabel(rawUrl),
+  };
+}
+
+async function naverSmartstoreMetadataFromUrl(rawUrl: string) {
+  const pageUrl = new URL(rawUrl);
+  const productMatch = pageUrl.pathname.match(/^\/(?:main\/)?([^/]+)\/products\/(\d+)\/?$/i);
+  if (!productMatch) throw new Error("naver_product_url_unsupported");
+
+  const [, storeId, productId] = productMatch;
+  const apiUrl = `https://smartstore.naver.com/i/v1/stores/${encodeURIComponent(storeId)}/products/${productId}`;
+  const response = await safeFetch(apiUrl, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (compatible; AnminamWishlist/1.0)",
+      accept: "application/json, text/plain, */*",
+      "accept-language": "ko-KR,ko;q=0.9,en;q=0.6",
+      referer: pageUrl.toString(),
+    },
+  });
+  if (!response.ok) throw new Error(`naver_api_${response.status}`);
+  const declaredLength = Number(response.headers.get("content-length") || 0);
+  if (declaredLength > MAX_HTML_BYTES) throw new Error("payload_too_large");
+  const text = await readTextLimited(response.body, MAX_HTML_BYTES);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("naver_api_invalid_json");
+  }
+  return naverProductMetadata(payload, rawUrl);
+}
+
 async function metadataFromUrl(rawUrl: string) {
   const url = new URL(rawUrl);
   if (url.hostname.toLowerCase() === "product.kyobobook.co.kr") {
     return kyoboMetadataFromUrl(rawUrl);
+  }
+  if (["smartstore.naver.com", "m.smartstore.naver.com"].includes(url.hostname.toLowerCase())) {
+    try {
+      return await naverSmartstoreMetadataFromUrl(rawUrl);
+    } catch {
+      // Smartstore sometimes rejects its product endpoint for automated requests. Try page metadata next.
+    }
   }
 
   const response = await safeFetch(rawUrl, {
