@@ -11,9 +11,8 @@ paths:
       operationId: addWishlistItem
       summary: Add an item to the wishlist
       description: >-
-        Create one public wishlist item. Only call this after the user explicitly asks to add or save a product, or sends a standalone product URL in the wishlist conversation.
-        Use the product page URL and only provide title, image, and price that are visible or confirmed from the supplied link.
-        Do not guess missing metadata. A 409 response means this URL is already saved.
+        Create one public wishlist item after the user asks to save a product or sends a standalone product URL.
+        Use only product details confirmed from the supplied link. Do not guess missing metadata. A 409 means the URL is already saved.
       security:
         - bearerAuth: []
       requestBody:
@@ -99,6 +98,7 @@ paths:
         '503':
           description: The GPT API key has not been configured on the Worker.
 components:
+  schemas: {}
   securitySchemes:
     bearerAuth:
       type: http
