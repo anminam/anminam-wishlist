@@ -50,7 +50,7 @@ button.icon-button { border: 0; padding: 0; font-size: 30px; line-height: 1; wid
 .budget-summary strong { font-size: 23px; }
 .budget-summary button { flex: 0 0 auto; border-color: var(--line); font-size: 11px; }
 
-.notice { position: sticky; z-index: 30; top: 10px; width: min(620px, calc(100vw - 32px)); margin: 16px auto -58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 14px 12px 18px; background: var(--ink); color: white; border-radius: 5px; box-shadow: 0 10px 35px rgba(23, 24, 21, .22); }
+.notice { position: sticky; z-index: 200; top: 10px; width: min(620px, calc(100vw - 32px)); margin: 16px auto -58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 14px 12px 18px; background: var(--ink); color: white; border-radius: 5px; box-shadow: 0 10px 35px rgba(23, 24, 21, .22); }
 .notice button { border: 0; color: white; padding: 0; font-size: 20px; }
 
 .archive-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 42px; padding-top: 22px; }

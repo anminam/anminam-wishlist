@@ -535,6 +535,10 @@ async function metadataFromUrl(rawUrl: string) {
   const html = await readTextLimited(response.body, MAX_HTML_BYTES);
   const type = response.headers.get("content-type") || "";
   if (!type.includes("text/html") && !looksLikeHtml(html)) throw new Error("not_html");
+  if (["smartstore.naver.com", "m.smartstore.naver.com"].includes(new URL(rawUrl).hostname.toLowerCase())
+    && /보안 확인을 완료해 주세요|rcpt_checking|캡차이미지|recaptcha/i.test(html)) {
+    throw new Error("naver_security_check");
+  }
   return extractProductMetadata(html, response.url || rawUrl);
 }
 
@@ -548,6 +552,10 @@ async function handleMetadata(request: Request, env: AppEnv) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : "unknown";
     console.warn(JSON.stringify({ message: "metadata_fetch_failed", detail, host: new URL(rawUrl).hostname }));
+    if (["smartstore.naver.com", "m.smartstore.naver.com"].includes(new URL(rawUrl).hostname.toLowerCase())
+      && (detail === "naver_security_check" || /^(?:naver_api|origin)_(?:401|403|429)$/.test(detail))) {
+      return json({ error: "네이버 보안 확인으로 상품 정보 자동 수집이 제한됐어요. 상품명과 가격, 이미지를 직접 입력해주세요." }, { status: 422 });
+    }
     return json({ error: "상품 정보를 자동으로 읽지 못했습니다. 상품명과 이미지를 직접 입력해주세요." }, { status: 422 });
   }
 }
