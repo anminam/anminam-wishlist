@@ -1,3 +1,4 @@
+import { ProductPicker, type ProductCandidate } from "./components/ProductPicker";
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Status = "wanted" | "purchased" | "archived";
@@ -229,7 +230,6 @@ function App() {
   const [reserveWish, setReserveWish] = useState<Wish | null>(null);
   const [priceDetailWish, setPriceDetailWish] = useState<Wish | null>(null);
   const [saving, setSaving] = useState(false);
-  const [fetchingMeta, setFetchingMeta] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sharedTitle, setSharedTitle] = useState("");
   const [sharedDescription, setSharedDescription] = useState("");
@@ -384,22 +384,14 @@ function App() {
     setShowEditor(true);
   }
 
-  async function fetchMetadata() {
-    if (!draft.url.trim()) return;
-    setFetchingMeta(true);
-    try {
-      const data = await api<{ title?: string; image?: string; price?: number | null; currency?: string; source?: string }>("/api/metadata", {
-        method: "POST", headers: apiHeaders(true), body: JSON.stringify({ url: draft.url.trim() }),
-      });
-      setDraft((current) => {
-        const title = data.title || current.title;
-        const source = data.source || current.source;
-        return { ...current, title, image_url: data.image || current.image_url, image_key: "", price: data.price == null ? current.price : String(data.price), currency: data.currency || current.currency, source, category: categoryEdited ? current.category : recommendCategory(current.url, title, source) };
-      });
-      setMessage("가져온 정보를 확인한 뒤 저장해주세요.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "상품 정보를 불러오지 못했습니다.");
-    } finally { setFetchingMeta(false); }
+  function confirmProduct(product: ProductCandidate) {
+    setDraft((current) => ({
+      ...current, url: product.url, title: product.title, image_url: product.image || "", image_key: "",
+      price: product.price == null ? "" : String(product.price), currency: product.currency || "KRW",
+      source: product.source || "",
+      category: categoryEdited ? current.category : recommendCategory(product.url, product.title, product.source || ""),
+    }));
+    setMessage("상품을 확정했습니다. 내용을 확인한 뒤 저장해주세요.");
   }
 
   async function uploadImage(event: ChangeEvent<HTMLInputElement>) {
@@ -656,7 +648,8 @@ function App() {
 
 
       {showEditor && <Modal title={editingId ? "위시 수정" : "새 위시 기록"} onClose={() => setShowEditor(false)} wide><form className="editor-form" onSubmit={saveWish}>
-        <div className="url-fetch"><label>상품 링크<input type="url" value={draft.url} onChange={(event) => { const url = event.target.value; setDraft((current) => ({ ...current, url, category: categoryEdited ? current.category : recommendCategory(url, current.title, current.source) })); }} required placeholder="https://" /></label><button type="button" onClick={() => void fetchMetadata()} disabled={fetchingMeta || !draft.url}>{fetchingMeta ? "읽는 중" : "정보 가져오기"}</button></div>
+        <ProductPicker initialInput={draft.url || draft.title} onConfirm={confirmProduct} />
+        <label>상품 링크<input type="url" value={draft.url} onChange={(event) => { const url = event.target.value; setDraft((current) => ({ ...current, url, category: categoryEdited ? current.category : recommendCategory(url, current.title, current.source) })); }} required placeholder="https://" /></label>
         <div className="editor-grid">
           <div className="image-editor"><div className="image-preview">{draft.image_url ? <img src={draft.image_key ? `/api/images/${draft.image_key}` : draft.image_url} alt="상품 미리보기" /> : <span>상품 이미지</span>}</div><label className="upload-button">{uploading ? "업로드 중" : "이미지 직접 올리기"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={uploadImage} disabled={uploading} /></label><label>이미지 URL<input value={draft.image_url} onChange={(event) => setDraft({ ...draft, image_url: event.target.value, image_key: "" })} /></label></div>
           <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => { const title = event.target.value; setDraft((current) => ({ ...current, title, category: categoryEdited ? current.category : recommendCategory(current.url, title, current.source) })); }} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => { setCategoryEdited(true); setDraft({ ...draft, category: event.target.value }); }} placeholder="책, 패션, 장비" />{suggestedCategory && <span className="category-suggestion">{draft.category === suggestedCategory ? `자동 추천: ${suggestedCategory}` : <>추천: {suggestedCategory} <button type="button" onClick={() => { setCategoryEdited(true); setDraft({ ...draft, category: suggestedCategory }); }}>적용</button></>}</span>}</label><label>판매처<input value={draft.source} onChange={(event) => { const source = event.target.value; setDraft((current) => ({ ...current, source, category: categoryEdited ? current.category : recommendCategory(current.url, current.title, source) })); }} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>

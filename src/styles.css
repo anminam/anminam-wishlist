@@ -305,3 +305,16 @@ label small { color: var(--muted); font-weight: 400; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.product-picker { display: grid; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.product-picker small { display: block; color: var(--muted); margin-top: 6px; }
+.product-preview strong { overflow-wrap: anywhere; }
+.product-preview { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 18px; padding: 16px; border: 1px solid var(--ink); }
+.product-preview > img { width: 140px; height: 140px; object-fit: contain; background: white; }
+.product-preview > div { grid-column: -2; }
+.product-picker-actions, .product-confirmed { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.product-preview .product-picker-actions { grid-column: 1 / -1; justify-content: flex-end; }
+@media (max-width: 620px) {
+  .product-preview { grid-template-columns: 1fr; }
+  .product-preview > div { grid-column: 1; }
+}
