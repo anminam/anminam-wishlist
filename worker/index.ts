@@ -10,6 +10,7 @@ type WishInput = {
   image_key?: unknown;
   price?: unknown;
   purchase_price?: unknown;
+  purchase_method?: unknown;
   target_price?: unknown;
   currency?: unknown;
   category?: unknown;
@@ -50,6 +51,7 @@ type WishRow = {
   last_price_checked_at: string | null;
   last_price_check_status: "unknown" | "pending" | "success" | "unavailable" | "error";
   purchase_price: number | null;
+  purchase_method: string;
   planned_month: string | null;
   review_after: string | null;
   created_at: string;
@@ -622,7 +624,7 @@ const WISH_COLUMNS = `
   w.id, w.title, w.url, w.image_url, w.image_key, w.price, w.currency,
   w.category, w.reason, w.source, w.purchased, w.status, w.priority,
   w.target_price, w.purchased_at, w.visibility, w.share_slug, w.collection_id,
-  w.track_price, w.last_price_checked_at, w.last_price_check_status, w.purchase_price, w.created_at, w.updated_at,
+  w.track_price, w.last_price_checked_at, w.last_price_check_status, w.purchase_price, w.purchase_method, w.created_at, w.updated_at,
   w.planned_month, w.review_after,
   c.name AS collection_name, c.slug AS collection_slug
 `;
@@ -719,6 +721,10 @@ async function replaceWishTags(env: AppEnv, wishId: string, tags: string[]) {
   await env.DB.batch(statements);
 }
 
+function normalizePurchaseMethod(value: unknown): "unknown" | "self" | "gift" | "other" {
+  return value === "self" || value === "gift" || value === "other" ? value : "unknown";
+}
+
 function wishValues(input: WishInput) {
   return {
     title: normalizeText(input.title, 300),
@@ -727,6 +733,7 @@ function wishValues(input: WishInput) {
     imageKey: normalizeNullableText(input.image_key, 512),
     price: normalizeInteger(input.price),
     purchasePrice: normalizeInteger(input.purchase_price),
+    purchaseMethod: normalizePurchaseMethod(input.purchase_method),
     targetPrice: normalizeInteger(input.target_price),
     currency: normalizeText(input.currency, 8).toUpperCase() || "KRW",
     category: normalizeNullableText(input.category, 100),
@@ -776,14 +783,14 @@ async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext, 
     INSERT INTO wishes (
       id, title, url, image_url, image_key, price, currency, category, reason, source,
       purchased, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
-      collection_id, track_price, planned_month
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      collection_id, track_price, planned_month, purchase_method
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id, values.title, values.url, values.imageUrl, values.imageKey, values.price, values.currency,
     values.category, values.reason, values.source || sourceLabel(values.url), values.status === "purchased" ? 1 : 0,
     values.status, values.priority, values.targetPrice, values.status === "purchased" ? new Date().toISOString() : null,
-    values.status === "purchased" ? values.purchasePrice ?? values.price : null,
-    values.visibility, shareSlug, values.collectionId, values.trackPrice, values.plannedMonth,
+    values.status === "purchased" && values.purchaseMethod !== "gift" ? values.purchasePrice ?? values.price : null,
+    values.visibility, shareSlug, values.collectionId, values.trackPrice, values.plannedMonth, values.purchaseMethod,
   ).run();
   await replaceWishTags(env, id, values.tags);
   if (values.imageUrl && !values.imageKey) {
@@ -798,30 +805,32 @@ async function createWish(request: Request, env: AppEnv, ctx: ExecutionContext, 
 
 async function updateWish(request: Request, env: AppEnv, id: string) {
   if (!await isAuthorized(request, env)) return unauthorized();
-  const values = wishValues(await readJson(request) as WishInput);
+  const body = await readJson(request) as WishInput;
+  const values = wishValues(body);
   if (!values.title || !isSafePublicHttpUrl(values.url)) return json({ error: "상품명과 올바른 URL이 필요합니다." }, { status: 400 });
-  const existing = await env.DB.prepare("SELECT image_url, image_key, purchased_at, purchase_price FROM wishes WHERE id = ?")
-    .bind(id).first<{ image_url: string | null; image_key: string | null; purchased_at: string | null; purchase_price: number | null }>();
+  const existing = await env.DB.prepare("SELECT image_url, image_key, purchased_at, purchase_price, purchase_method FROM wishes WHERE id = ?")
+    .bind(id).first<{ image_url: string | null; image_key: string | null; purchased_at: string | null; purchase_price: number | null; purchase_method: string }>();
   if (!existing) return json({ error: "위시를 찾을 수 없습니다." }, { status: 404 });
   const duplicate = await env.DB.prepare("SELECT id FROM wishes WHERE url = ? AND id != ? LIMIT 1").bind(values.url, id).first();
   if (duplicate) return json({ error: "같은 링크로 저장된 다른 위시가 있습니다." }, { status: 409 });
   let imageKey = values.imageKey;
   if (!imageKey && values.imageUrl && values.imageUrl !== existing.image_url) imageKey = await mirrorImage(values.imageUrl, id, env);
   if (!values.imageUrl && !values.imageKey) imageKey = null;
+  const purchaseMethod = Object.hasOwn(body, "purchase_method") ? values.purchaseMethod : normalizePurchaseMethod(existing.purchase_method);
   const purchasedAt = values.status === "purchased" ? existing.purchased_at || new Date().toISOString() : null;
   await env.DB.prepare(`
     UPDATE wishes SET
       title = ?, url = ?, image_url = ?, image_key = ?, price = ?, currency = ?, category = ?,
       reason = ?, source = ?, purchased = ?, status = ?, priority = ?, target_price = ?,
-      purchased_at = ?, purchase_price = ?, visibility = ?, collection_id = ?, track_price = ?, planned_month = ?, updated_at = datetime('now')
+      purchased_at = ?, purchase_price = ?, visibility = ?, collection_id = ?, track_price = ?, planned_month = ?, purchase_method = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(
     values.title, values.url, values.imageUrl, imageKey, values.price, values.currency, values.category,
     values.reason, values.source || sourceLabel(values.url), values.status === "purchased" ? 1 : 0,
     values.status, values.priority, values.targetPrice, purchasedAt,
-    values.status === "purchased" ? values.purchasePrice ?? existing.purchase_price ?? values.price : existing.purchase_price,
+    values.status === "purchased" && purchaseMethod !== "gift" ? values.purchasePrice ?? existing.purchase_price ?? values.price : existing.purchase_price,
     values.visibility,
-    values.collectionId, values.trackPrice, values.plannedMonth, id,
+    values.collectionId, values.trackPrice, values.plannedMonth, purchaseMethod, id,
   ).run();
   await replaceWishTags(env, id, values.tags);
   if (existing.image_key && existing.image_key !== imageKey) await env.WISH_IMAGES.delete(existing.image_key);
@@ -834,19 +843,21 @@ async function updateWishStatus(request: Request, env: AppEnv, id: string) {
   if (!await isAuthorized(request, env)) return unauthorized();
   const body = await readJson(request);
   const status = normalizeStatus(body.status);
-  const existing = await env.DB.prepare("SELECT price, purchase_price FROM wishes WHERE id = ?")
-    .bind(id).first<{ price: number | null; purchase_price: number | null }>();
+  const existing = await env.DB.prepare("SELECT price, purchase_price, purchase_method FROM wishes WHERE id = ?")
+    .bind(id).first<{ price: number | null; purchase_price: number | null; purchase_method: string }>();
   if (!existing) return json({ error: "위시를 찾을 수 없습니다." }, { status: 404 });
-  const purchasePrice = Object.hasOwn(body, "purchase_price")
+  const purchaseMethod = Object.hasOwn(body, "purchase_method") ? normalizePurchaseMethod(body.purchase_method) : normalizePurchaseMethod(existing.purchase_method);
+  const purchasePrice = purchaseMethod === "gift" ? existing.purchase_price : Object.hasOwn(body, "purchase_price")
     ? normalizeInteger(body.purchase_price)
     : existing.purchase_price ?? existing.price;
   await env.DB.prepare(`
     UPDATE wishes SET status = ?, purchased = ?,
       purchased_at = CASE WHEN ? = 'purchased' THEN COALESCE(purchased_at, datetime('now')) ELSE NULL END,
       purchase_price = CASE WHEN ? = 'purchased' THEN ? ELSE purchase_price END,
+      purchase_method = ?,
       updated_at = datetime('now')
     WHERE id = ?
-  `).bind(status, status === "purchased" ? 1 : 0, status, status, purchasePrice, id).run();
+  `).bind(status, status === "purchased" ? 1 : 0, status, status, purchasePrice, purchaseMethod, id).run();
   return json({ ok: true, status });
 }
 
@@ -1076,7 +1087,7 @@ async function exportData(request: Request, env: AppEnv) {
   const backup = { version: 1, exported_at: new Date().toISOString(), ...Object.fromEntries(entries) };
   if (new URL(request.url).searchParams.get("format") === "csv") {
     const wishes = await queryWishes(request, env, { admin: true });
-    const headers = ["title", "url", "price", "purchase_price", "purchased_at", "target_price", "planned_month", "currency", "category", "source", "status", "priority", "tags", "reason"];
+    const headers = ["title", "url", "price", "purchase_price", "purchase_method", "purchased_at", "target_price", "planned_month", "currency", "category", "source", "status", "priority", "tags", "reason"];
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [headers.join(","), ...wishes.map((wish) => headers.map((key) => escape(key === "tags" ? wish.tags?.join("|") : wish[key as keyof WishRow])).join(","))].join("\n");
     return new Response(`\uFEFF${csv}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": "attachment; filename=anminam-wishes.csv" } });
@@ -1110,18 +1121,18 @@ async function importData(request: Request, env: AppEnv) {
       INSERT OR REPLACE INTO wishes (
         id, title, url, image_url, image_key, price, currency, category, reason, source, purchased,
         created_at, updated_at, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
-        collection_id, track_price, last_price_checked_at, last_price_check_status, planned_month, review_after
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        collection_id, track_price, last_price_checked_at, last_price_check_status, planned_month, review_after, purchase_method
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       id, title, url, normalizeNullableText(row.image_url, 2048), normalizeNullableText(row.image_key, 512), normalizeInteger(row.price),
       normalizeText(row.currency, 8) || "KRW", normalizeNullableText(row.category, 100), normalizeNullableText(row.reason, 2000),
       normalizeNullableText(row.source, 100), normalizeStatus(row.status) === "purchased" ? 1 : 0, normalizeText(row.created_at, 40) || new Date().toISOString(),
       normalizeText(row.updated_at, 40) || new Date().toISOString(), normalizeStatus(row.status), normalizePriority(row.priority), normalizeInteger(row.target_price),
-      normalizeNullableText(row.purchased_at, 40), normalizeInteger(row.purchase_price) ?? (normalizeStatus(row.status) === "purchased" ? normalizeInteger(row.price) : null),
+      normalizeNullableText(row.purchased_at, 40), normalizeInteger(row.purchase_price) ?? (normalizeStatus(row.status) === "purchased" && normalizePurchaseMethod(row.purchase_method) !== "gift" ? normalizeInteger(row.price) : null),
       normalizeVisibility(row.visibility), normalizeText(row.share_slug, 100) || crypto.randomUUID().slice(0, 16),
       normalizeNullableText(row.collection_id, 100), row.track_price === 1 ? 1 : 0, normalizeNullableText(row.last_price_checked_at, 40),
       ["unknown", "pending", "success", "unavailable", "error"].includes(normalizeText(row.last_price_check_status, 20)) ? normalizeText(row.last_price_check_status, 20) : "unknown",
-      isMonth(row.planned_month) ? row.planned_month : null, /^\d{4}-\d{2}-\d{2}$/.test(normalizeText(row.review_after, 20)) ? normalizeText(row.review_after, 20) : null,
+      isMonth(row.planned_month) ? row.planned_month : null, /^\d{4}-\d{2}-\d{2}$/.test(normalizeText(row.review_after, 20)) ? normalizeText(row.review_after, 20) : null, normalizePurchaseMethod(row.purchase_method),
     ));
   }
   for (const row of asRows(backup.monthly_budgets, 120)) {

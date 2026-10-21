@@ -318,3 +318,4 @@ label small { color: var(--muted); font-weight: 400; }
   .product-preview { grid-template-columns: 1fr; }
   .product-preview > div { grid-column: 1; }
 }
+.purchase-method { display: inline-block; padding: 3px 8px; border: 1px solid var(--line); color: var(--ink); font-size: 12px; white-space: nowrap; }

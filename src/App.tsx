@@ -1,3 +1,5 @@
+import { PurchaseCompletion } from "./components/PurchaseCompletion";
+import { purchaseExpense, purchaseMethodLabels, type PurchaseMethod } from "./purchase";
 import { ProductPicker, type ProductCandidate } from "./components/ProductPicker";
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -28,6 +30,7 @@ type Wish = {
   last_price_checked_at: string | null;
   last_price_check_status: "unknown" | "pending" | "success" | "unavailable" | "error";
   purchase_price: number | null;
+  purchase_method: PurchaseMethod;
   planned_month: string | null;
   review_after: string | null;
   purchased_at: string | null;
@@ -65,6 +68,7 @@ type Draft = {
   image_key: string;
   price: string;
   purchase_price: string;
+  purchase_method: PurchaseMethod;
   target_price: string;
   currency: string;
   category: string;
@@ -80,7 +84,7 @@ type Draft = {
 };
 
 const emptyDraft: Draft = {
-  url: "", title: "", image_url: "", image_key: "", price: "", purchase_price: "", target_price: "",
+  url: "", title: "", image_url: "", image_key: "", price: "", purchase_price: "", purchase_method: "self", target_price: "",
   currency: "KRW", category: "", source: "", reason: "", status: "wanted",
   priority: 2, visibility: "public", collection_id: "", tags: "", track_price: false, planned_month: "",
 };
@@ -229,6 +233,7 @@ function App() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [reserveWish, setReserveWish] = useState<Wish | null>(null);
   const [priceDetailWish, setPriceDetailWish] = useState<Wish | null>(null);
+  const [completionWish, setCompletionWish] = useState<Wish | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [sharedTitle, setSharedTitle] = useState("");
@@ -346,12 +351,12 @@ function App() {
 
   const monthlySpend = useMemo(() => allWishes
     .filter((wish) => wish.status === "purchased" && purchaseMonth(wish.purchased_at) === currentMonth())
-    .reduce((sum, wish) => sum + (wish.purchase_price ?? wish.price ?? 0), 0), [allWishes]);
+    .reduce((sum, wish) => sum + purchaseExpense(wish), 0), [allWishes]);
   const activeBudget = monthlyBudgets.find((item) => item.month === currentMonth())?.amount ?? 0;
   const hasActiveBudget = monthlyBudgets.some((item) => item.month === currentMonth());
   const selectedMonthSpend = allWishes
     .filter((wish) => wish.status === "purchased" && purchaseMonth(wish.purchased_at) === budgetMonth)
-    .reduce((sum, wish) => sum + (wish.purchase_price ?? wish.price ?? 0), 0);
+    .reduce((sum, wish) => sum + purchaseExpense(wish), 0);
   const selectedMonthPlan = allWishes
     .filter((wish) => wish.status === "wanted" && wish.planned_month === budgetMonth)
     .reduce((sum, wish) => sum + (wish.price ?? 0), 0);
@@ -376,7 +381,7 @@ function App() {
     setCategoryEdited(true);
     setDraft({
       url: wish.url, title: wish.title, image_url: wish.image_url || "", image_key: wish.image_key || "",
-      price: wish.price == null ? "" : String(wish.price), purchase_price: wish.purchase_price == null ? "" : String(wish.purchase_price), target_price: wish.target_price == null ? "" : String(wish.target_price),
+      purchase_method: wish.purchase_method || "unknown", price: wish.price == null ? "" : String(wish.price), purchase_price: wish.purchase_price == null ? "" : String(wish.purchase_price), target_price: wish.target_price == null ? "" : String(wish.target_price),
       currency: wish.currency || "KRW", category: wish.category || "", source: wish.source || "", reason: wish.reason || "",
       status: wish.status, priority: wish.priority, visibility: wish.visibility, collection_id: wish.collection_id || "",
       tags: wish.tags.join(", "), track_price: Boolean(wish.track_price), planned_month: wish.planned_month || "",
@@ -425,15 +430,9 @@ function App() {
   }
 
   async function changeStatus(wish: Wish, nextStatus: Status) {
-    let purchasePrice: number | null = null;
-    if (nextStatus === "purchased") {
-      const entered = window.prompt("실제로 결제한 금액을 입력해주세요.", String(wish.purchase_price ?? wish.price ?? ""));
-      if (entered === null) return;
-      purchasePrice = parsePrice(entered);
-      if (purchasePrice === null) { setMessage("구매 금액은 0 이상의 숫자로 입력해주세요."); return; }
-    }
-    await api(`/api/wishes/${encodeURIComponent(wish.id)}/status`, { method: "PATCH", headers: apiHeaders(true), body: JSON.stringify({ status: nextStatus, ...(purchasePrice === null ? {} : { purchase_price: purchasePrice }) }) });
-    setMessage(nextStatus === "purchased" ? "구매 완료로 옮겼습니다." : nextStatus === "archived" ? "보관함으로 옮겼습니다." : "위시로 되돌렸습니다.");
+    if (nextStatus === "purchased") { setCompletionWish(wish); return; }
+    await api(`/api/wishes/${encodeURIComponent(wish.id)}/status`, { method: "PATCH", headers: apiHeaders(true), body: JSON.stringify({ status: nextStatus }) });
+    setMessage(nextStatus === "archived" ? "보관함으로 옮겼습니다." : "위시로 되돌렸습니다.");
     await loadData();
   }
 
@@ -625,7 +624,7 @@ function App() {
                   <div className="wish-body">
                     <div className="card-labels"><span>{wish.collection_name || wish.category || "위시"}</span><span>{priorityLabels[wish.priority]}</span></div>
                     <a className="wish-title" href={wish.url} target="_blank" rel="noreferrer">{wish.title}</a>
-                    <div className="price-line"><strong>{formatPrice(wish.price, wish.currency)}</strong>{wish.target_price != null && <small>목표 {formatPrice(wish.target_price, wish.currency)}</small>}{admin && wish.status === "purchased" && wish.purchase_price != null && <small>실결제 {formatPrice(wish.purchase_price, wish.currency)}</small>}</div>
+                    <div className="price-line">{wish.status === "purchased" && <span className="purchase-method">{purchaseMethodLabels[wish.purchase_method || "unknown"]}</span>}<strong>{formatPrice(wish.price, wish.currency)}</strong>{wish.target_price != null && <small>목표 {formatPrice(wish.target_price, wish.currency)}</small>}{admin && wish.status === "purchased" && wish.purchase_method !== "gift" && wish.purchase_price != null && <small>실결제 {formatPrice(wish.purchase_price, wish.currency)}</small>}</div>
                     <PriceSparkline history={wish.price_history} onClick={() => setPriceDetailWish(wish)} />
                     {wish.status === "wanted" && wish.planned_month && <p className="planned-label">구매 예정 {wish.planned_month.replace("-", "년 ")}월</p>}
                     {admin && wish.track_price === 1 && <p className={`price-status ${wish.last_price_check_status}`}>{priceCheckLabel(wish)}{wish.last_price_checked_at && <time>{new Date(`${wish.last_price_checked_at.replace(" ", "T")}Z`).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}</p>}
@@ -636,7 +635,7 @@ function App() {
                       {!admin && wish.status === "wanted" && !wish.reserved && <button onClick={() => setReserveWish(wish)}>선물 준비하기</button>}
                       {!admin && ownReservation && <button onClick={() => void cancelReservation(wish)}>예약 취소</button>}
                       <button aria-pressed={compareIds.includes(wish.id)} onClick={() => toggleCompare(wish)}>{compareIds.includes(wish.id) ? "비교 중" : "비교 담기"}</button>
-                      {admin && <><button onClick={() => editWish(wish)}>수정</button>{wish.track_price === 1 && <button onClick={() => void checkPrice(wish)}>가격 확인</button>}<button onClick={() => share(`wish=${wish.share_slug}`)}>공유</button>{wish.status === "wanted" ? <><button onClick={() => void changeStatus(wish, "purchased")}>구매 완료</button><button onClick={() => void changeStatus(wish, "archived")}>보관</button></> : <>{wish.status === "purchased" && <button onClick={async () => { const entered = window.prompt("실제 결제 금액을 수정해주세요.", String(wish.purchase_price ?? wish.price ?? "")); if (entered === null) return; const amount = parsePrice(entered); if (amount === null) { setMessage("구매 금액은 0 이상의 숫자로 입력해주세요."); return; } await api(`/api/wishes/${encodeURIComponent(wish.id)}/status`, { method: "PATCH", headers: apiHeaders(true), body: JSON.stringify({ status: "purchased", purchase_price: amount }) }); setMessage("실결제 금액을 수정했습니다."); await loadData(); }}>금액 수정</button>}<button onClick={() => void changeStatus(wish, "wanted")}>위시로 이동</button></>}<button className="danger" onClick={() => void removeWish(wish)}>삭제</button></>}
+                      {admin && <><button onClick={() => editWish(wish)}>수정</button>{wish.track_price === 1 && <button onClick={() => void checkPrice(wish)}>가격 확인</button>}<button onClick={() => share(`wish=${wish.share_slug}`)}>공유</button>{wish.status === "wanted" ? <><button onClick={() => void changeStatus(wish, "purchased")}>구매 완료</button><button onClick={() => void changeStatus(wish, "archived")}>보관</button></> : <>{wish.status === "purchased" && <button onClick={() => setCompletionWish(wish)}>완료 정보 수정</button>}<button onClick={() => void changeStatus(wish, "wanted")}>위시로 이동</button></>}<button className="danger" onClick={() => void removeWish(wish)}>삭제</button></>}
                     </div></div>
                   </div>
                 </article>;
@@ -652,12 +651,17 @@ function App() {
         <label>상품 링크<input type="url" value={draft.url} onChange={(event) => { const url = event.target.value; setDraft((current) => ({ ...current, url, category: categoryEdited ? current.category : recommendCategory(url, current.title, current.source) })); }} required placeholder="https://" /></label>
         <div className="editor-grid">
           <div className="image-editor"><div className="image-preview">{draft.image_url ? <img src={draft.image_key ? `/api/images/${draft.image_key}` : draft.image_url} alt="상품 미리보기" /> : <span>상품 이미지</span>}</div><label className="upload-button">{uploading ? "업로드 중" : "이미지 직접 올리기"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={uploadImage} disabled={uploading} /></label><label>이미지 URL<input value={draft.image_url} onChange={(event) => setDraft({ ...draft, image_url: event.target.value, image_key: "" })} /></label></div>
-          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => { const title = event.target.value; setDraft((current) => ({ ...current, title, category: categoryEdited ? current.category : recommendCategory(current.url, title, current.source) })); }} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => { setCategoryEdited(true); setDraft({ ...draft, category: event.target.value }); }} placeholder="책, 패션, 장비" />{suggestedCategory && <span className="category-suggestion">{draft.category === suggestedCategory ? `자동 추천: ${suggestedCategory}` : <>추천: {suggestedCategory} <button type="button" onClick={() => { setCategoryEdited(true); setDraft({ ...draft, category: suggestedCategory }); }}>적용</button></>}</span>}</label><label>판매처<input value={draft.source} onChange={(event) => { const source = event.target.value; setDraft((current) => ({ ...current, source, category: categoryEdited ? current.category : recommendCategory(current.url, current.title, source) })); }} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
+          <div className="fields"><label>상품명<input value={draft.title} onChange={(event) => { const title = event.target.value; setDraft((current) => ({ ...current, title, category: categoryEdited ? current.category : recommendCategory(current.url, title, current.source) })); }} required /></label><div className="field-pair"><label>현재 가격<input inputMode="numeric" value={draft.price} onChange={(event) => setDraft({ ...draft, price: event.target.value })} /></label><label>목표 가격<input inputMode="numeric" value={draft.target_price} onChange={(event) => setDraft({ ...draft, target_price: event.target.value })} /></label></div>{draft.status === "purchased" && <label>취득 방법<select value={draft.purchase_method} onChange={(event) => setDraft({ ...draft, purchase_method: event.target.value as PurchaseMethod })}>{(Object.keys(purchaseMethodLabels) as PurchaseMethod[]).map((key) => <option key={key} value={key}>{purchaseMethodLabels[key]}</option>)}</select></label>}{draft.status === "purchased" && draft.purchase_method !== "gift" && <label>실제 결제 금액<input inputMode="numeric" value={draft.purchase_price} onChange={(event) => setDraft({ ...draft, purchase_price: event.target.value })} placeholder="비워두면 현재 가격을 사용" /></label>}<div className="field-pair"><label>카테고리<input value={draft.category} onChange={(event) => { setCategoryEdited(true); setDraft({ ...draft, category: event.target.value }); }} placeholder="책, 패션, 장비" />{suggestedCategory && <span className="category-suggestion">{draft.category === suggestedCategory ? `자동 추천: ${suggestedCategory}` : <>추천: {suggestedCategory} <button type="button" onClick={() => { setCategoryEdited(true); setDraft({ ...draft, category: suggestedCategory }); }}>적용</button></>}</span>}</label><label>판매처<input value={draft.source} onChange={(event) => { const source = event.target.value; setDraft((current) => ({ ...current, source, category: categoryEdited ? current.category : recommendCategory(current.url, current.title, source) })); }} /></label></div><label>구매 예정 월<input type="month" value={draft.planned_month} onChange={(event) => setDraft({ ...draft, planned_month: event.target.value })} /><small>선택하면 정리 화면에 월별 계획으로 보여요.</small></label><label>태그<input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="업무용, 올해구매, 선물후보" /><small>쉼표로 구분합니다.</small></label><label>갖고 싶은 이유와 확인할 점<textarea rows={4} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} /></label></div>
         </div>
         <div className="option-grid"><label>상태<select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Status })}><option value="wanted">갖고 싶음</option><option value="purchased">구매 완료</option><option value="archived">보관</option></select></label><label>우선순위<select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })}><option value="1">꼭 갖고 싶음</option><option value="2">관심 있음</option><option value="3">나중에 생각</option></select></label><label>공개 범위<select value={draft.visibility} onChange={(event) => setDraft({ ...draft, visibility: event.target.value as Visibility })}><option value="public">공개</option><option value="unlisted">링크 공개</option><option value="private">비공개</option></select></label><label>컬렉션<select value={draft.collection_id} onChange={(event) => setDraft({ ...draft, collection_id: event.target.value })}><option value="">선택 안 함</option>{collections.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></div>
         <label className="check-row"><input type="checkbox" checked={draft.track_price} onChange={(event) => setDraft({ ...draft, track_price: event.target.checked })} /><span>매일 가격을 확인하고 가격 하락을 알립니다.</span></label>
         <div className="modal-actions"><button type="button" className="quiet" onClick={() => setShowEditor(false)}>취소</button><button className="primary" type="submit" disabled={saving}>{saving ? "저장 중" : "저장"}</button></div>
       </form></Modal>}
+
+      {completionWish && <Modal title="구매·선물 완료 기록" onClose={() => setCompletionWish(null)}><PurchaseCompletion initialMethod={completionWish.status === "purchased" ? completionWish.purchase_method || "unknown" : "self"} initialPrice={completionWish.purchase_price ?? completionWish.price} onCancel={() => setCompletionWish(null)} onSave={async (method, price) => {
+        await api(`/api/wishes/${encodeURIComponent(completionWish.id)}/status`, { method: "PATCH", headers: apiHeaders(true), body: JSON.stringify({ status: "purchased", purchase_method: method, ...(method !== "gift" && price !== null ? { purchase_price: price } : {}) }) });
+        setCompletionWish(null); setMessage("완료 기록을 저장했습니다."); await loadData();
+      }} /></Modal>}
 
       {showCollections && <CollectionManager collections={collections} onClose={() => setShowCollections(false)} onChanged={loadData} onMessage={setMessage} onShare={(slug) => share(`collection=${slug}`)} />}
 
