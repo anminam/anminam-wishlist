@@ -1,0 +1,21 @@
+.planning-center { min-width:0; }
+.planning-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:20px; }
+.planning-tabs [aria-selected="true"] { background:var(--ink, #29362e); color:white; }
+.planning-fields { border:0; padding:0; margin:0; display:grid; gap:14px; min-width:0; }
+.planning-fields > label, .planning-record > label { display:grid; gap:6px; }
+.planning-fields input:not([type="checkbox"]), .planning-fields select, .planning-fields textarea { width:100%; min-width:0; padding:10px; border:1px solid #d7d4ca; border-radius:6px; background:#fff; color:#292d29; }
+.planning-fields .planning-check { display:flex; align-items:center; gap:8px; }
+.planning-totals { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; background:#f1f1e9; padding:16px; border-radius:8px; }
+.planning-totals div { display:grid; gap:8px; }
+.planning-totals strong { overflow-wrap:anywhere; }
+.planning-candidates { max-height:320px; overflow:auto; border-block:1px solid #deddd3; }
+.planning-candidate { display:flex; gap:12px; align-items:center; padding:12px 4px; border-bottom:1px solid #e8e6df; }
+.planning-candidate input { flex-shrink:0; width:18px; height:18px; }
+.planning-candidate span { display:grid; gap:5px; overflow-wrap:anywhere; }
+.planning-candidate small { color:#62675f; }
+.planning-record { padding:16px; border:1px solid #deddd3; border-radius:8px; overflow-wrap:anywhere; }
+.planning-record p { white-space:pre-wrap; }
+.planning-error { color:#a12c22; }
+.saved-searches { display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:10px 0; }
+.saved-searches select { max-width:220px; padding:8px; }
+@media(max-width:540px) { .planning-totals { grid-template-columns:1fr; } .planning-tabs button { flex:1 1 40%; } }

@@ -1,3 +1,5 @@
+import { PlanningCenter } from "./components/PlanningCenter";
+import { SavedSearches } from "./components/SavedSearches";
 import { PurchaseCompletion } from "./components/PurchaseCompletion";
 import { purchaseExpense, purchaseMethodLabels, type PurchaseMethod } from "./purchase";
 import { ProductPicker, type ProductCandidate } from "./components/ProductPicker";
@@ -227,6 +229,7 @@ function App() {
   const [showCollections, setShowCollections] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
+  const [showPlanning, setShowPlanning] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
   const [budgetMonth, setBudgetMonth] = useState(currentMonth);
   const [budgetAmount, setBudgetAmount] = useState("");
@@ -540,6 +543,7 @@ function App() {
         <nav className="top-actions" aria-label="주요 작업">
           {!sharedMode && <button className="overview-toggle" aria-expanded={showOverview} aria-controls="overview-panel" onClick={() => setShowOverview((open) => !open)}>{showOverview ? "요약 닫기" : "요약"}</button>}
           {admin && <button className="quiet" onClick={() => setShowNotifications(true)}>알림{unread > 0 && <b>{unread}</b>}</button>}
+          {admin && <button className="quiet" onClick={() => setShowPlanning(true)}>구매 계획</button>}
           {admin && <button className="quiet" onClick={() => setShowCollections(true)}>컬렉션</button>}
           {!sharedMode && <button className="quiet" onClick={() => window.location.assign(admin ? "/cdn-cgi/access/logout" : "/admin")}>{admin ? "관리 종료" : "관리자"}</button>}
           {!sharedMode && <button className="primary" onClick={openNewWish}>위시 추가</button>}
@@ -592,6 +596,10 @@ function App() {
         </aside>}
 
         <section className="collection-panel">
+          {!sharedMode && <SavedSearches current={{ query, category, status, sort, view, collection: selectedCollection }} admin={admin} collections={collections.map(c => c.id)} onMessage={setMessage} onApply={conditions => {
+            setQuery(conditions.query); setCategory(conditions.category); setStatus(conditions.status); setSort(conditions.sort); setView(conditions.view); setSelectedCollection(conditions.collection);
+            try { localStorage.setItem("wishlist-view", conditions.view); } catch { /* Viewing remains available without browser storage. */ }
+          }} />}
           <div className="filterbar">
             <label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, 메모, 태그 검색" aria-label="위시 검색" /></label>
             <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="카테고리"><option value="">모든 카테고리</option>{categories.map((item) => <option key={item}>{item}</option>)}</select>
@@ -668,6 +676,8 @@ function App() {
       {priceDetailWish && <Modal title="가격 기록" onClose={() => setPriceDetailWish(null)}><PriceHistory wish={priceDetailWish} /></Modal>}
 
       {showNotifications && <Modal title="새로운 소식" onClose={() => setShowNotifications(false)}><div className="notification-list">{notifications.length === 0 ? <p className="muted">아직 알림이 없습니다.</p> : notifications.map((notice) => <article className={notice.read_at ? "read" : ""} key={notice.id}><span>{notice.type === "reservation" ? "선물" : notice.type === "price_drop" ? "가격 하락" : "목표 가격"}</span><p>{notice.message}</p><time>{new Date(`${notice.created_at}Z`).toLocaleDateString("ko-KR")}</time></article>)}</div>{unread > 0 && <button className="primary full" onClick={async () => { await api("/api/notifications/read-all", { method: "POST", headers: apiHeaders() }); await loadData(); }}>모두 읽음으로 표시</button>}</Modal>}
+
+      {admin && showPlanning && <Modal title="구매 계획·사용 기록" onClose={() => setShowPlanning(false)} wide><PlanningCenter wishes={allWishes} budgets={monthlyBudgets} onChanged={loadData} onCompare={(ids) => { setCompareIds(ids); setShowPlanning(false); }} /></Modal>}
 
       {showBudget && <Modal title="월 예산·구매 기록" onClose={() => setShowBudget(false)}><form className="stack-form" onSubmit={saveBudget}><p>구매 완료로 바꾸면 실제 결제 금액에 반영됩니다. 예정 월을 적어둔 위시도 함께 확인할 수 있어요.</p><label>기록할 월<input type="month" value={budgetMonth} onChange={(event) => setBudgetMonth(event.target.value)} required /></label><label>월 예산<input inputMode="numeric" value={budgetAmount} onChange={(event) => setBudgetAmount(event.target.value)} placeholder="예산 미설정" /><small>0원을 입력하면 예산을 0원으로 설정합니다.</small></label><div className="budget-report"><div><span>구매 지출</span><strong>{formatPrice(selectedMonthSpend)}</strong></div><div><span>구매 예정액 · 현재 가격 기준</span><strong>{formatPrice(selectedMonthPlan)}</strong></div>{selectedMonthBudget && <small>{selectedMonthBudget.amount > 0 ? `예산 ${formatPrice(selectedMonthBudget.amount)} · 지출 ${Math.round((selectedMonthSpend / selectedMonthBudget.amount) * 100)}% · 예정 포함 ${Math.round(((selectedMonthSpend + selectedMonthPlan) / selectedMonthBudget.amount) * 100)}%` : "예산을 0원으로 설정했습니다."}</small>}</div><button className="primary" type="submit">예산 저장</button></form></Modal>}
 

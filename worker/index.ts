@@ -1,3 +1,4 @@
+import { planningRequest } from "./planning";
 type AppEnv = Env & { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string; GPT_WISH_API_KEY?: string };
 
 type Visibility = "public" | "unlisted" | "private";
@@ -1082,7 +1083,7 @@ async function runScheduledPriceChecks(env: AppEnv) {
 
 async function exportData(request: Request, env: AppEnv) {
   if (!await isAuthorized(request, env)) return unauthorized();
-  const tables = ["collections", "wishes", "tags", "wish_tags", "reservations", "price_history", "notifications", "monthly_budgets"] as const;
+  const tables = ["collections", "wishes", "tags", "wish_tags", "reservations", "price_history", "notifications", "monthly_budgets", "wish_experiences", "decision_groups", "decision_members"] as const;
   const entries = await Promise.all(tables.map(async (table) => [table, (await env.DB.prepare(`SELECT * FROM ${table}`).all()).results] as const));
   const backup = { version: 1, exported_at: new Date().toISOString(), ...Object.fromEntries(entries) };
   if (new URL(request.url).searchParams.get("format") === "csv") {
@@ -1177,6 +1178,21 @@ async function importData(request: Request, env: AppEnv) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(id, normalizeNullableText(row.wish_id, 100), type, message, normalizeInteger(row.value), normalizeNullableText(row.read_at, 40), normalizeText(row.created_at, 40) || new Date().toISOString()));
   }
+  for (const row of asRows(backup.decision_groups, 1000)) {
+    const id = normalizeText(row.id, 100), name = normalizeText(row.name, 80);
+    if (id && name) statements.push(env.DB.prepare("INSERT OR IGNORE INTO decision_groups (id, name, created_at) VALUES (?, ?, ?)").bind(id, name, normalizeText(row.created_at, 40) || new Date().toISOString()));
+  }
+  for (const row of asRows(backup.decision_members, 5000)) {
+    const groupId = normalizeText(row.group_id, 100), wishId = normalizeText(row.wish_id, 100);
+    if (groupId && wishId) statements.push(env.DB.prepare("INSERT OR IGNORE INTO decision_members (group_id, wish_id) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM decision_groups WHERE id = ?) AND EXISTS (SELECT 1 FROM wishes WHERE id = ?)").bind(groupId, wishId, groupId, wishId));
+  }
+  for (const row of asRows(backup.wish_experiences, 1000)) {
+    const wishId = normalizeText(row.wish_id, 100);
+    const rating = typeof row.rating === "number" && Number.isInteger(row.rating) && row.rating >= 1 && row.rating <= 5 ? row.rating : null;
+    const usage = ["using", "rarely", "finished"].includes(String(row.usage)) ? String(row.usage) : null;
+    const remindAfter = typeof row.remind_after === "string" && Number.isFinite(Date.parse(row.remind_after)) ? row.remind_after.slice(0, 40) : null;
+    if (wishId) statements.push(env.DB.prepare("INSERT OR REPLACE INTO wish_experiences (wish_id, rating, usage, note, remind_after, updated_at) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM wishes WHERE id = ?)").bind(wishId, rating, usage, normalizeText(row.note, 1000), remindAfter, normalizeText(row.updated_at, 40) || new Date().toISOString(), wishId));
+  }
   if (!statements.length) return json({ error: "가져올 데이터가 없습니다." }, { status: 400 });
   for (let index = 0; index < statements.length; index += 100) await env.DB.batch(statements.slice(index, index + 100));
   return json({ ok: true, imported_statements: statements.length });
@@ -1197,6 +1213,10 @@ async function getImage(env: AppEnv, key: string) {
 async function handleRequest(request: Request, env: AppEnv, ctx: ExecutionContext) {
   const url = new URL(request.url);
   const path = url.pathname;
+  if (path === "/api/admin/planning" || path.startsWith("/api/admin/planning/")) {
+    if (!await isAuthorized(request, env)) return unauthorized();
+    return planningRequest(request, env.DB, ["PUT", "PATCH", "POST"].includes(request.method) ? await readJson(request, 32_000) : {});
+  }
   if (request.method === "GET" && path === "/api/admin/session") return json({ admin: await isAuthorized(request, env) });
   if (request.method === "GET" && path === "/api/wishes") return listWishes(request, env);
   if (request.method === "POST" && path === "/api/wishes") return createWish(request, env, ctx);
