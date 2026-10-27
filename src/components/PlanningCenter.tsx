@@ -26,13 +26,14 @@ export function PlanningCenter({ wishes, budgets, onChanged, onCompare }: { wish
   const [resolving, setResolving] = useState('');
   const [winner, setWinner] = useState('');
   async function load() {
+    setError('');
     const data = await planningApi<{ experiences: Experience[]; groups: DecisionGroup[] }>('');
     setExperiences(data.experiences); setGroups(data.groups); setReady(true);
   }
   useEffect(() => { void load().catch(e => setError(e.message)); }, []);
   useEffect(() => {
     setSelected(tab === 'month' ? wishes.filter(w => w.status === 'wanted' && w.planned_month === month).map(w => w.id) : []);
-    setQuery(''); setError(''); setNotice(''); setResolving('');
+    setQuery(''); setNotice(''); setResolving('');
   }, [tab, month, wishes]);
   useEffect(() => { if (tab === 'bulk') setSelected([]); }, [bulkStatus, query, tab]);
   const result = simulation(wishes, selected, month, budgets.find(b => b.month === month)?.amount);
@@ -63,7 +64,7 @@ export function PlanningCenter({ wishes, budgets, onChanged, onCompare }: { wish
       <label>후보 검색<input value={query} onChange={e => setQuery(e.target.value)} /></label>
       <CandidateList wishes={visible} selected={selected} toggle={toggle} />
       <p>{selected.length}개 선택 · 다른 월에 예정된 후보를 선택하면 이 달로 옮깁니다. 해제한 이 달 후보는 예정 월이 비워집니다.</p>
-      <button className="primary" disabled={!month || selected.length > 80} onClick={() => void run(() => planningApi('/month', { month, ids: selected }, 'PUT'), '구매 예정 월을 저장했습니다.')}>이 달 구매 예정으로 저장</button>
+      <button className="primary" disabled={!month || selected.length > 80} onClick={() => void run(() => planningApi('/month', { month, ids: selected, remove_ids: wishes.filter(w => w.status === 'wanted' && w.planned_month === month && !selected.includes(w.id)).map(w => w.id) }, 'PUT'), '구매 예정 월을 저장했습니다.')}>이 달 구매 예정으로 저장</button>
     </>}
     {tab === 'bulk' && <>
       <p>현재 표시된 위시를 선택해 한 번에 정리해요. 구매 완료 기록은 개별 항목에서 수정해주세요.</p>

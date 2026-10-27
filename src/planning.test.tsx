@@ -28,10 +28,10 @@ async function call(path: string, body: Record<string, unknown> = {}, method = '
   return planningRequest(new Request(`https://example.com/api/admin/planning${path}`, { method }), db, body);
 }
 it('월 후보를 원자적으로 교체하고 다른 월의 미선택 위시와 구매 기록을 보존한다', async () => {
-  expect((await call('/month', { month: '2026-10', ids: ['b'] })).status).toBe(200);
+  expect((await call('/month', { month: '2026-10', ids: ['b'], remove_ids: ['a', 'c'] })).status).toBe(200);
   expect(sqlite.prepare('SELECT id,planned_month FROM wishes WHERE id IN (\'a\',\'b\',\'c\') ORDER BY id').all().map(r => [r.id,r.planned_month])).toEqual([['a',null],['b','2026-10'],['c',null]]);
   expect(sqlite.prepare("SELECT purchase_price,purchased_at FROM wishes WHERE id='p'").get()).toMatchObject({ purchase_price:42000, purchased_at:'2026-09-01' });
-  expect((await call('/month', { month:'2026-11',ids:[] })).status).toBe(200);
+  expect((await call('/month', { month:'2026-11',ids:[],remove_ids:[] })).status).toBe(200);
   expect(sqlite.prepare("SELECT planned_month FROM wishes WHERE id='b'").get()?.planned_month).toBe('2026-10');
 });
 it('일괄 요청에서 구매 완료·없는 ID·중복·과도한 선택을 거절하며 부분 변경하지 않는다', async () => {
@@ -108,4 +108,37 @@ it('관리자 JSON 백업·복원에 사용 기록과 묶음을 포함하고 구
   const old = { ...backup }; delete old.wish_experiences; delete old.decision_groups; delete old.decision_members;
   const legacy = await worker.fetch(new Request('https://example.com/api/import',{method:'POST',headers,body:JSON.stringify(old)}),env,ctx);
   expect(legacy.status).toBe(200);
+  expect(sqlite.prepare('SELECT note FROM wish_experiences').get()?.note).toBe('백업할 기록');
+  expect(sqlite.prepare('SELECT COUNT(*) AS n FROM decision_members').get()?.n).toBe(2);
+  // A collection/tag restore must also preserve relationships absent from older backups.
+  sqlite.exec("INSERT INTO collections(id,name,slug) VALUES('collection','컬렉션','collection'); UPDATE wishes SET collection_id='collection' WHERE id='a'; INSERT INTO tags(id,name) VALUES('tag','태그'); INSERT INTO wish_tags(wish_id,tag_id) VALUES('a','tag')");
+  const parentOnly = { version:1, collections:[{id:'collection',name:'새 이름',slug:'collection'}], tags:[{id:'tag',name:'새 태그'}] };
+  const parentRestore = await worker.fetch(new Request('https://example.com/api/import',{method:'POST',headers,body:JSON.stringify(parentOnly)}),env,ctx);
+  expect(parentRestore.status).toBe(200);
+  expect(sqlite.prepare("SELECT collection_id FROM wishes WHERE id='a'").get()?.collection_id).toBe('collection');
+  expect(sqlite.prepare("SELECT COUNT(*) AS n FROM wish_tags WHERE wish_id='a'").get()?.n).toBe(1);
+});
+
+it('500개 조회 밖의 구매 계획을 보존하고 명시적으로 해제한 항목만 변경한다', async () => {
+  sqlite.exec("UPDATE wishes SET created_at='2000-01-01'");
+  const insert = sqlite.prepare("INSERT INTO wishes(id,title,url,status,created_at) VALUES(?,?,?,'wanted','2030-01-01')");
+  for (let i=0;i<500;i++) insert.run('new'+i,'새 위시','https://example.com/new'+i);
+  const response = await worker.fetch(new Request('https://example.com/api/wishes'),{DB:db} as Env,{} as ExecutionContext);
+  const visible = (await response.json() as {wishes:{id:string}[]}).wishes;
+  expect(visible).toHaveLength(500);
+  expect(visible.some(w=>w.id==='a')).toBe(false);
+  expect((await call('/month',{month:'2026-10',ids:['new0'],remove_ids:[]})).status).toBe(200);
+  expect(sqlite.prepare("SELECT planned_month FROM wishes WHERE id='a'").get()?.planned_month).toBe('2026-10');
+  expect((await call('/month',{month:'2026-10',ids:[],remove_ids:['c']})).status).toBe(200);
+  expect(sqlite.prepare("SELECT planned_month FROM wishes WHERE id='c'").get()?.planned_month).toBeNull();
+  expect(sqlite.prepare("SELECT planned_month FROM wishes WHERE id='a'").get()?.planned_month).toBe('2026-10');
+});
+it('월 계획 해제 대상이 없거나 겹치거나 다른 월로 바뀌었으면 안전하게 거절한다', async () => {
+  for (const body of [
+    {month:'2026-10',ids:[]},
+    {month:'2026-10',ids:['a'],remove_ids:['a']},
+    {month:'2026-10',ids:[],remove_ids:['b']},
+    {month:'2026-10',ids:[],remove_ids:['missing']},
+  ]) expect((await call('/month',body)).status).toBeGreaterThanOrEqual(400);
+  expect(sqlite.prepare("SELECT planned_month FROM wishes WHERE id='a'").get()?.planned_month).toBe('2026-10');
 });

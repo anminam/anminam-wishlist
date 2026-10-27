@@ -54,3 +54,30 @@ it('구매 후보의 저장 실패 시 선택을 유지하고 다시 저장한�
   await screen.findByText('구매 예정 월을 저장했습니다.');
   expect(requests).toHaveLength(2); expect(requests[0]).toMatchObject({ids:['a']}); expect(requests[1]).toMatchObject({ids:['a']});
 });
+
+it('초기 조회 실패 뒤 탭을 바꿔도 재시도할 수 있고 성공하면 입력이 풀린다', async () => {
+  vi.stubGlobal('fetch',vi.fn().mockRejectedValueOnce(new Error('일시적 연결 실패')).mockResolvedValueOnce(Response.json({experiences:[],groups:[]})));
+  render(<PlanningCenter wishes={[]} budgets={[]} onChanged={async()=>{}} onCompare={()=>{}} />);
+  await screen.findByText('일시적 연결 실패');
+  fireEvent.click(screen.getByRole('tab',{name:'일괄 정리'}));
+  expect(screen.queryByText('다시 불러오기')).not.toBeNull();
+  expect(document.querySelector('fieldset')?.disabled).toBe(true);
+  fireEvent.click(screen.getByText('다시 불러오기'));
+  await waitFor(()=>expect(document.querySelector('fieldset')?.disabled).toBe(false));
+  expect(screen.queryByText('일시적 연결 실패')).toBeNull();
+});
+it('월 계획 저장은 화면에서 해제한 기존 후보만 명시해서 보낸다', async () => {
+  const requests: Record<string,unknown>[]=[];
+  vi.stubGlobal('fetch',vi.fn(async (_path:string,init?:RequestInit)=>{
+    if(init?.method==='PUT') {requests.push(JSON.parse(String(init.body)));return Response.json({ok:true});}
+    return Response.json({experiences:[],groups:[]});
+  }));
+  const month = new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit'}).format(new Date());
+  const wish:PlanningWish={id:'a',title:'이 달 후보',price:1000,currency:'KRW',status:'wanted',planned_month:month,purchased_at:null,purchase_price:null,purchase_method:'self',priority:2};
+  render(<PlanningCenter wishes={[wish]} budgets={[]} onChanged={async()=>{}} onCompare={()=>{}} />);
+  await waitFor(()=>expect(document.querySelector('fieldset')?.disabled).toBe(false));
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByText('이 달 구매 예정으로 저장'));
+  await waitFor(()=>expect(requests).toHaveLength(1));
+  expect(requests[0]).toEqual({month,ids:[],remove_ids:['a']});
+});

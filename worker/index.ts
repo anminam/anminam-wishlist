@@ -1110,7 +1110,7 @@ async function importData(request: Request, env: AppEnv) {
     const name = normalizeText(row.name, 100);
     const slug = normalizeText(row.slug, 100);
     if (!id || !name || !slug) continue;
-    statements.push(env.DB.prepare("INSERT OR REPLACE INTO collections (id, name, description, slug, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    statements.push(env.DB.prepare("INSERT INTO collections (id, name, description, slug, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, slug = excluded.slug, visibility = excluded.visibility, created_at = excluded.created_at, updated_at = excluded.updated_at")
       .bind(id, name, normalizeNullableText(row.description, 500), slug, normalizeVisibility(row.visibility), normalizeText(row.created_at, 40) || new Date().toISOString(), normalizeText(row.updated_at, 40) || new Date().toISOString()));
   }
   for (const row of asRows(backup.wishes, 1000)) {
@@ -1119,11 +1119,12 @@ async function importData(request: Request, env: AppEnv) {
     const id = normalizeText(row.id, 100);
     if (!id || !title || !isSafePublicHttpUrl(url)) continue;
     statements.push(env.DB.prepare(`
-      INSERT OR REPLACE INTO wishes (
+      INSERT INTO wishes (
         id, title, url, image_url, image_key, price, currency, category, reason, source, purchased,
         created_at, updated_at, status, priority, target_price, purchased_at, purchase_price, visibility, share_slug,
         collection_id, track_price, last_price_checked_at, last_price_check_status, planned_month, review_after, purchase_method
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET title = excluded.title, url = excluded.url, image_url = excluded.image_url, image_key = excluded.image_key, price = excluded.price, currency = excluded.currency, category = excluded.category, reason = excluded.reason, source = excluded.source, purchased = excluded.purchased, created_at = excluded.created_at, updated_at = excluded.updated_at, status = excluded.status, priority = excluded.priority, target_price = excluded.target_price, purchased_at = excluded.purchased_at, purchase_price = excluded.purchase_price, visibility = excluded.visibility, share_slug = excluded.share_slug, collection_id = excluded.collection_id, track_price = excluded.track_price, last_price_checked_at = excluded.last_price_checked_at, last_price_check_status = excluded.last_price_check_status, planned_month = excluded.planned_month, review_after = excluded.review_after, purchase_method = excluded.purchase_method
     `).bind(
       id, title, url, normalizeNullableText(row.image_url, 2048), normalizeNullableText(row.image_key, 512), normalizeInteger(row.price),
       normalizeText(row.currency, 8) || "KRW", normalizeNullableText(row.category, 100), normalizeNullableText(row.reason, 2000),
@@ -1145,7 +1146,7 @@ async function importData(request: Request, env: AppEnv) {
   for (const row of asRows(backup.tags)) {
     const id = normalizeText(row.id, 100);
     const name = normalizeText(row.name, 30);
-    if (id && name) statements.push(env.DB.prepare("INSERT OR REPLACE INTO tags (id, name, created_at) VALUES (?, ?, ?)")
+    if (id && name) statements.push(env.DB.prepare("INSERT INTO tags (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, created_at = excluded.created_at")
       .bind(id, name, normalizeText(row.created_at, 40) || new Date().toISOString()));
   }
   for (const row of asRows(backup.wish_tags)) {

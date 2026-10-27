@@ -20,11 +20,13 @@ export async function planningRequest(request: Request, db: D1Database, body: Re
   }
   if (path === '/api/admin/planning/month' && request.method === 'PUT') {
     const selected = ids(body.ids, 0);
-    if (!month(body.month) || !selected) return fail('구매 예정 월과 후보를 확인해주세요. 한 번에 최대 80개까지 저장할 수 있어요.');
+    const removed = ids(body.remove_ids, 0, 500);
+    if (!month(body.month) || !selected || !removed || removed.some(id => selected.includes(id))) return fail('구매 예정 월과 후보를 확인해주세요. 화면을 다시 열고 저장해주세요.');
     const found = await rows(db, selected);
-    if (found.length !== selected.length || found.some(row => row.status !== 'wanted')) return fail('후보 상태가 변경되었습니다. 목록을 새로 불러와주세요.', 409);
-    // One statement atomically replaces only this month's wanted plans and selected candidates.
-    const result = await db.prepare(`UPDATE wishes SET planned_month = CASE WHEN id IN (SELECT value FROM json_each(?)) THEN ? ELSE NULL END, updated_at = datetime('now') WHERE status = 'wanted' AND (planned_month = ? OR id IN (SELECT value FROM json_each(?)))`).bind(JSON.stringify(selected), body.month, body.month, JSON.stringify(selected)).run();
+    const removedRows = await rows(db, removed);
+    if (found.length !== selected.length || found.some(row => row.status !== 'wanted') || removedRows.length !== removed.length || removedRows.some(row => row.status !== 'wanted' || row.planned_month !== body.month)) return fail('후보 상태가 변경되었습니다. 목록을 새로 불러와주세요.', 409);
+    // Update only selected candidates and explicitly deselected plans, never unseen rows.
+    const result = await db.prepare(`UPDATE wishes SET planned_month = CASE WHEN id IN (SELECT value FROM json_each(?)) THEN ? ELSE NULL END, updated_at = datetime('now') WHERE status = 'wanted' AND (id IN (SELECT value FROM json_each(?)) OR (planned_month = ? AND id IN (SELECT value FROM json_each(?))))`).bind(JSON.stringify(selected), body.month, JSON.stringify(selected), body.month, JSON.stringify(removed)).run();
     return reply({ ok: true, changed: result.meta.changes });
   }
   if (path === '/api/admin/planning/bulk' && request.method === 'PATCH') {
